@@ -1,0 +1,74 @@
+cmake_minimum_required(VERSION 3.10)
+project(Voxels)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ------------------------------------------------------------------
+# Compile GLSL shaders into SPIR-V
+# ------------------------------------------------------------------
+find_program(GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES bin)
+file(GLOB_RECURSE GLSL_SRC_FILES "${CMAKE_SOURCE_DIR}/src/shaders/glsl/*.comp")
+set(SPRIV_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/src/shaders/spirv)
+
+set(SPIRV_OUTPUTS)
+foreach(GLSL ${GLSL_SRC_FILES})
+    get_filename_component(FILE_NAME ${GLSL} NAME)
+    set(SPV ${SPRIV_OUTPUT_DIR}/${FILE_NAME}.spv)
+
+    add_custom_command(
+        OUTPUT ${SPV}
+        COMMAND ${GLSLC_EXECUTABLE} ${GLSL} -o ${SPV}
+        DEPENDS ${GLSL}
+        COMMENT "Compiling ${GLSL} -> ${SPV}"
+        VERBATIM
+    )
+    list(APPEND SPIRV_OUTPUTS ${SPV})
+endforeach()
+
+add_custom_target(Shaders ALL DEPENDS ${SPIRV_OUTPUTS})
+
+# ------------------------------------------------------------------
+# Generate headers from SPIR-V
+# ------------------------------------------------------------------
+set(SHADER_HEADER_DIR ${CMAKE_SOURCE_DIR}/src/shaders)
+file(MAKE_DIRECTORY ${SHADER_HEADER_DIR})
+set(BIN2HEADER_EXE ${CMAKE_SOURCE_DIR}/tools/SpirvToHeader.exe)
+
+set(SHADER_HEADER_OUTPUTS)
+foreach(SPV ${SPIRV_OUTPUTS})
+    get_filename_component(FILE_NAME ${SPV} NAME)
+    set(HDR ${SHADER_HEADER_DIR}/${FILE_NAME}.h)
+
+    add_custom_command(
+        OUTPUT ${HDR}
+        COMMAND ${BIN2HEADER_EXE} ${SPV} ${HDR}
+        DEPENDS ${SPV}
+        COMMENT "Generating header ${HDR} from ${SPV}"
+        VERBATIM
+    )
+    list(APPEND SHADER_HEADER_OUTPUTS ${HDR})
+endforeach()
+
+add_custom_target(ShaderHeaders ALL DEPENDS ${SHADER_HEADER_OUTPUTS})
+add_dependencies(ShaderHeaders Shaders)   # ensure headers wait for shaders
+
+# ------------------------------------------------------------------
+# Build the program
+# ------------------------------------------------------------------
+file(GLOB SRC_FILES "${CMAKE_SOURCE_DIR}/src/*.cpp")
+add_executable(Voxels ${SRC_FILES})
+
+find_package(Vulkan REQUIRED)
+
+target_include_directories(Voxels PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_directories(Voxels PRIVATE ${CMAKE_SOURCE_DIR}/lib/SDL3)
+
+target_link_libraries(Voxels
+    PRIVATE
+    Vulkan::Vulkan
+    SDL3
+)
+
+# make Voxels wait for ShaderHeaders (which waits for Shaders)
+add_dependencies(Voxels ShaderHeaders)
