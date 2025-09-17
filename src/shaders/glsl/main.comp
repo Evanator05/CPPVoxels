@@ -16,8 +16,7 @@ layout(set = 0, binding = 1) buffer Chunks {
 } chunk;
 
 layout(std430, set = 0, binding = 2) buffer WorldInfo {
-    float time;
-    vec3 cameraPos;
+    vec4 posTime;
     vec2 cameraRot;
 } worldInfo;
 
@@ -77,29 +76,16 @@ bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out in
             return true;
 
         // Step along smallest tMax
-        if (tMax.x < tMax.y) {
-            if (tMax.x < tMax.z) {
-                voxel.x += int(step.x);
-                traveled = tMax.x;
-                tMax.x += tDelta.x;
-            } else {
-                voxel.z += int(step.z);
-                traveled = tMax.z;
-                tMax.z += tDelta.z;
-            }
-        } else {
-            if (tMax.y < tMax.z) {
-                voxel.y += int(step.y);
-                traveled = tMax.y;
-                tMax.y += tDelta.y;
-            } else {
-                voxel.z += int(step.z);
-                traveled = tMax.z;
-                tMax.z += tDelta.z;
-            }
-        }
-    }
+        vec3 c = vec3(tMax.x <= tMax.y && tMax.x <= tMax.z,
+              tMax.y <  tMax.x && tMax.y <= tMax.z,
+              tMax.z <  tMax.x && tMax.z <  tMax.y);
 
+        int axis = int(dot(c, vec3(0.0, 1.0, 2.0)));
+
+        voxel[axis] += int(step[axis]);
+        traveled = tMax[axis];
+        tMax[axis] += tDelta[axis];
+    }
     return false;
 }
 
@@ -119,29 +105,18 @@ void main() {
 
     vec3 dir = normalize(vec3(uv, 1.0));
 
-    float myTime = worldInfo.time / 5;
-
-    float pitch = radians(45.0); // down
-    float yaw   = myTime+3.14;
-
     // Quaternion for pitch (X-axis)
-    vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(pitch*0.5), cos(pitch*0.5));
+    vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(worldInfo.cameraRot.y*0.5), cos(worldInfo.cameraRot.y*0.5));
 
     // Quaternion for yaw (Y-axis)
-    vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(yaw*0.5), cos(yaw*0.5));
+    vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(worldInfo.cameraRot.x*0.5), cos(worldInfo.cameraRot.x*0.5));
 
     // Combine into single rotation
     vec4 q = quatMultiply(qYaw, qPitch); // note: yaw * pitch
     dir = rotateVectorByQuat(dir, q);
 
-    vec3 campos = vec3(
-        sin(myTime)*256+128,
-        300,
-        cos(myTime)*256+128
-    );
-
     Ray ray = createRay(
-        campos,
+        worldInfo.posTime.xyz,
         dir
     );
 

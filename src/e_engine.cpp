@@ -7,6 +7,11 @@
 #include "i_gpubuffers.h"
 #include "worldinfo.h"
 
+#include "time.h"
+#include "stdlib.h"
+
+#include "math.h"
+
 bool running = true;
 
 int toColor(int x) {
@@ -27,19 +32,20 @@ void engine_init() {
         }
     }
 
-    for (int i = 0; i < chunkData.size(); i++) {
-        Chunk chunk = chunkData[i];
-        chunk.data.index;
-        for (int j = 0; j < chunk.data.size.x*chunk.data.size.y*chunk.data.size.z; j++) {
-            int number = j;
-            int z = number/(64*64);
-            number %= 64*64;
-            int y = number/64;
-            int x = number%64;
+    // srand(time(NULL));
+    // for (int i = 0; i < chunkData.size(); i++) {
+    //     Chunk chunk = chunkData[i];
+    //     chunk.data.index;
+    //     for (int j = 0; j < chunk.data.size.x*chunk.data.size.y*chunk.data.size.z; j++) {
+    //         int number = j;
+    //         int z = number/(64*64);
+    //         number %= 64*64;
+    //         int y = number/64;
+    //         int x = number%64;
 
-            voxelData[chunk.data.index+j].data = (VOXELSOLID*(x%2)*(y%2)*(z%2)) | VOXELSOLID | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
-        }
-    }
+    //         voxelData[chunk.data.index+j].data = (VOXELSOLID*(rand()&1)) | rand(); //(VOXELSOLID*(rand()&1)) | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
+    //     }
+    // }
 
     gpubuffers_init();
     gpubuffers_upload();
@@ -54,7 +60,25 @@ void engine_cleanup() {
     video_cleanup();
 }
 
+uint32_t rand32() {
+    return ((uint32_t)rand() << 30) ^ ((uint32_t)rand() << 15) ^ (uint32_t)rand();
+}
+
 void engine_update() {
+
+    worldInfo.cameraPos = glm::vec3(
+        sin(worldInfo.time/20)*64+128,
+        150,
+        cos(worldInfo.time/20)*64+128
+    );
+    worldInfo.cameraRot = glm::vec2(worldInfo.time/20+3.14,.45);
+
+    for (int i = 0; i < 128; i++) {
+        voxelData[rand32()%voxelData.size()].data = (VOXELSOLID*(rand()&1)) | rand();
+    }
+    
+    gpubuffers_upload();
+
     worldInfo_update();
     video_update();
     graphics_update();

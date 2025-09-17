@@ -4,8 +4,8 @@
 #include "glm/vec2.hpp"
 
 typedef struct _WorldInfo {
-    float time;
     glm::vec3 cameraPos;
+    float time;
     glm::vec2 cameraRot; 
 } WorldInfo;
 
