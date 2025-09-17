@@ -15,6 +15,12 @@ layout(set = 0, binding = 1) buffer Chunks {
     Chunk data[];
 } chunk;
 
+layout(std430, set = 0, binding = 2) buffer WorldInfo {
+    float time;
+    vec3 cameraPos;
+    vec2 cameraRot;
+} worldInfo;
+
 int getVoxel(int i) {
     int data = voxel.data[i/2];
     data >>= 16*(i&1); // shift high bits if odd index
@@ -22,7 +28,7 @@ int getVoxel(int i) {
 }
 
 Chunk getIntersectingChunk(Ray ray, out Intersection intersection) {
-    int chunkCount = 9;
+    int chunkCount = 64;
     Chunk closestChunk;
     Intersection closestIntersection;
     closestIntersection.near = 1e30;
@@ -113,8 +119,10 @@ void main() {
 
     vec3 dir = normalize(vec3(uv, 1.0));
 
-    float pitch = radians(0.0); // down
-    float yaw   = radians(45.0);  // right
+    float myTime = worldInfo.time / 5;
+
+    float pitch = radians(45.0); // down
+    float yaw   = myTime+3.14;
 
     // Quaternion for pitch (X-axis)
     vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(pitch*0.5), cos(pitch*0.5));
@@ -126,9 +134,14 @@ void main() {
     vec4 q = quatMultiply(qYaw, qPitch); // note: yaw * pitch
     dir = rotateVectorByQuat(dir, q);
 
+    vec3 campos = vec3(
+        sin(myTime)*256+128,
+        300,
+        cos(myTime)*256+128
+    );
 
     Ray ray = createRay(
-        vec3(-32.0, 70.0, -32.0),
+        campos,
         dir
     );
 

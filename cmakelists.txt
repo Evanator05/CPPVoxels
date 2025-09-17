@@ -64,11 +64,16 @@ find_package(Vulkan REQUIRED)
 target_include_directories(Voxels PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_directories(Voxels PRIVATE ${CMAKE_SOURCE_DIR}/lib/SDL3)
 
+
+
 target_link_libraries(Voxels
     PRIVATE
     Vulkan::Vulkan
     SDL3
 )
+
+target_link_options(Voxels PRIVATE -static-libgcc -static-libstdc++)
+
 
 # make Voxels wait for ShaderHeaders (which waits for Shaders)
 add_dependencies(Voxels ShaderHeaders)

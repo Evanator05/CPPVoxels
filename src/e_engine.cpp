@@ -5,6 +5,7 @@
 #include "i_graphics.h"
 #include "voxel.h"
 #include "i_gpubuffers.h"
+#include "worldinfo.h"
 
 bool running = true;
 
@@ -18,17 +19,13 @@ void engine_init() {
     voxel_init();
     //gpubuffers_init();
     
-    //allocate some functions to test, delete in final project
-    voxel_chunkAllocate(glm::ivec3(0, 0, 0));
-    voxel_chunkAllocate(glm::ivec3(0, 1, 0));
-    voxel_chunkAllocate(glm::ivec3(1, 0, 0));
-    voxel_chunkAllocate(glm::ivec3(1, 1, 0));
-    voxel_chunkAllocate(glm::ivec3(0, 0, 1));
-    voxel_chunkAllocate(glm::ivec3(0, 1, 1));
-    voxel_chunkAllocate(glm::ivec3(1, 0, 1));
-    voxel_chunkAllocate(glm::ivec3(1, 1, 1));
-    voxel_chunkAllocate(glm::ivec3(-1, 0, 0));
-
+    for (int x = 0; x < 4; x++) {
+        for (int z = 0; z < 4; z++) {
+            for (int y = 0; y < 4; y++) {
+                voxel_chunkAllocate(glm::ivec3(x, y, z));
+            }
+        }
+    }
 
     for (int i = 0; i < chunkData.size(); i++) {
         Chunk chunk = chunkData[i];
@@ -40,21 +37,25 @@ void engine_init() {
             int y = number/64;
             int x = number%64;
 
-            voxelData[chunk.data.index+j].data = (VOXELSOLID*(x%2)*(y%2)*(z%2)) | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
+            voxelData[chunk.data.index+j].data = (VOXELSOLID*(x%2)*(y%2)*(z%2)) | VOXELSOLID | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
         }
     }
 
     gpubuffers_init();
     gpubuffers_upload();
+
+    worldInfo_init();
 }
 
 void engine_cleanup() {
+    worldInfo_cleanup();
     gpubuffers_cleanup();
     graphics_cleanup();
     video_cleanup();
 }
 
 void engine_update() {
+    worldInfo_update();
     video_update();
     graphics_update();
 }

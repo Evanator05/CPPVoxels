@@ -4,6 +4,7 @@
 #include "i_gpubuffers.h"
 #include "voxel.h"
 #include "i_graphics.h"
+#include "worldinfo.h"
 
 SDL_GPUBuffer *voxelBuffer = nullptr;
 SDL_GPUTransferBuffer *voxelTransferBuffer = nullptr;
@@ -115,5 +116,6 @@ SDL_GPUBuffer** gpubuffers_getVoxelBuffers() {
     static SDL_GPUBuffer* buffers[GPUBUFFERCOUNT];
     buffers[0] = voxelBuffer;
     buffers[1] = chunkBuffer;
+    buffers[2] = worldInfoBuffer;
     return buffers;
 }

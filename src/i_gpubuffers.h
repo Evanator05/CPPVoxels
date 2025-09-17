@@ -3,7 +3,7 @@
 
 #include "allocator.h"
 
-#define GPUBUFFERCOUNT 2
+#define GPUBUFFERCOUNT 3
 
 void gpubuffers_init(void);
 
