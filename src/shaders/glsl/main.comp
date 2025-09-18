@@ -105,34 +105,39 @@ void main() {
 
     vec3 dir = normalize(vec3(uv, 1.0));
 
+    vec3 camPos = worldInfo.posTime.xyz;
+    vec2 camRot = worldInfo.cameraRot;
+    float time = worldInfo.posTime.w;
+
+
     // Quaternion for pitch (X-axis)
-    vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(worldInfo.cameraRot.y*0.5), cos(worldInfo.cameraRot.y*0.5));
+    vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(camRot.y*0.5), cos(camRot.y*0.5));
 
     // Quaternion for yaw (Y-axis)
-    vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(worldInfo.cameraRot.x*0.5), cos(worldInfo.cameraRot.x*0.5));
+    vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(camRot.x*0.5), cos(camRot.x*0.5));
 
     // Combine into single rotation
     vec4 q = quatMultiply(qYaw, qPitch); // note: yaw * pitch
     dir = rotateVectorByQuat(dir, q);
 
     Ray ray = createRay(
-        worldInfo.posTime.xyz,
+        camPos,
         dir
     );
 
     vec3 color = ray.dir;
 
+    Intersection intersection;
+    Chunk c;
+    bool hit;
+    int data;
     while (true) {
-        Intersection intersection;
-        Chunk c = getIntersectingChunk(ray, intersection);
-        if (intersection.hit) {
-            int data;
-            bool hit = DDAVoxels(c, ray.pos+ray.dir*intersection.near, intersection.far-intersection.near, ray.dir, data);
-            if (hit) {
-                color = getVoxelColor(data);
-                break;
-            }
-        } else { // if no chunks intersected return
+        c = getIntersectingChunk(ray, intersection);
+        if (!intersection.hit) break;
+        data;
+        hit = DDAVoxels(c, ray.pos+ray.dir*intersection.near, intersection.far-intersection.near, ray.dir, data);
+        if (hit) {
+            color = getVoxelColor(data);
             break;
         }
         ray.pos += ray.dir*intersection.far+ray.dir*1e-5;

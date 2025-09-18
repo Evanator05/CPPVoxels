@@ -30,8 +30,6 @@ void worldInfo_TransforToGPU() {
     memcpy(ptr, &worldInfo, sizeof(WorldInfo));
     SDL_UnmapGPUTransferBuffer(device, worldInfoTransferBuffer);
 
-    printf("%f %f %f %f %f %f\n", worldInfo.cameraPos.x, worldInfo.cameraPos.y, worldInfo.cameraPos.z, worldInfo.cameraRot.x, worldInfo.cameraRot.y, worldInfo.time);
-
     // create transfer buffer location
     SDL_GPUTransferBufferLocation tbl{};
     tbl.transfer_buffer = worldInfoTransferBuffer;

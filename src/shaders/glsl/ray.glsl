@@ -55,7 +55,7 @@ Intersection intersectAABB(Ray ray, Box box) {
     float near = max(max(intersectMin.x, intersectMin.y), intersectMin.z); // get the near hit distance
     float far  = min(min(intersectMax.x, intersectMax.y), intersectMax.z); // get the far hit fistance
     
-     if (near < 0.0) near = 0.0;
+    if (near < 0.0) near = 0.0;
 
     Intersection intersection;
     intersection.near = near;

@@ -43,7 +43,7 @@ void engine_init() {
     //         int y = number/64;
     //         int x = number%64;
 
-    //         voxelData[chunk.data.index+j].data = (VOXELSOLID*(rand()&1)) | rand(); //(VOXELSOLID*(rand()&1)) | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
+    //         voxelData[chunk.data.index+j].data = (VOXELSOLID*(rand()&1)) | (VOXELSOLID*(rand()&1)) | (toColor(z)<<10) | (toColor(y)<<5) | toColor(x);
     //     }
     // }
 
@@ -67,17 +67,19 @@ uint32_t rand32() {
 void engine_update() {
 
     worldInfo.cameraPos = glm::vec3(
-        sin(worldInfo.time/20)*64+128,
+        sin(worldInfo.time/20)*(sin(worldInfo.time/5)+1)*128+128,
         150,
-        cos(worldInfo.time/20)*64+128
+        cos(worldInfo.time/20)*(sin(worldInfo.time/5)+1)*128+128
     );
-    worldInfo.cameraRot = glm::vec2(worldInfo.time/20+3.14,.45);
+    worldInfo.cameraRot = glm::vec2(worldInfo.time/20+3.14,.2);
 
-    for (int i = 0; i < 128; i++) {
-        voxelData[rand32()%voxelData.size()].data = (VOXELSOLID*(rand()&1)) | rand();
+    for (int i = 0; i < 512; i++) {
+        voxelData[rand32()%voxelData.size()].data = rand() | (VOXELSOLID*(rand()&1));
     }
     
     gpubuffers_upload();
+
+    printf("XYZ %0.2f %0.2f %0.2f PY %0.2f %0.2f T %0.2f\n", worldInfo.cameraPos.x, worldInfo.cameraPos.y, worldInfo.cameraPos.z, worldInfo.cameraRot.x, worldInfo.cameraRot.y, worldInfo.time);
 
     worldInfo_update();
     video_update();
