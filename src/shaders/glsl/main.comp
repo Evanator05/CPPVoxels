@@ -7,18 +7,23 @@
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(set=1, binding = 0, rgba8) uniform writeonly image2D destImage;
 
-layout(set = 0, binding = 0) buffer Voxels {
-    int data[];
-} voxel;
-
-layout(set = 0, binding = 1) buffer Chunks {
-    Chunk data[];
-} chunk;
-
-layout(std430, set = 0, binding = 2) buffer WorldInfo {
+layout(std430, set = 0, binding = 0) buffer WorldInfo {
     vec4 posTime;
     vec2 cameraRot;
 } worldInfo;
+
+layout(set = 0, binding = 1) buffer Sizes {
+    int voxelsSize;
+    int chunksSize;
+} sizes;
+
+layout(set = 0, binding = 2) buffer Voxels {
+    int data[];
+} voxel;
+
+layout(set = 0, binding = 3) buffer Chunks {
+    Chunk data[];
+} chunk;
 
 int getVoxel(int i) {
     int data = voxel.data[i/2];
@@ -27,15 +32,15 @@ int getVoxel(int i) {
 }
 
 Chunk getIntersectingChunk(Ray ray, out Intersection intersection) {
-    int chunkCount = 64;
+    int chunkCount = sizes.chunksSize; // should be getting this from a uniform
     Chunk closestChunk;
     Intersection closestIntersection;
-    closestIntersection.near = 1e30;
+    closestIntersection.near = 1e30; // start very far away
     closestIntersection.hit = false;
 
     for (int i = 0; i < chunkCount; i++) { // go through each chunk
         Chunk c = chunk.data[i];
-        Box b = createBox(c.pos*64, c.size);
+        Box b = createBox(c.pos*c.size, c.size);
         Intersection intersection = intersectAABB(ray, b); // check its intersection
         if (intersection.hit && intersection.near < closestIntersection.near) { // if it hit and is closer than our closest found intersection
             closestIntersection = intersection;
@@ -44,11 +49,11 @@ Chunk getIntersectingChunk(Ray ray, out Intersection intersection) {
     } 
 
     intersection = closestIntersection;
-    return closestChunk; // start with infinite distance
+    return closestChunk;
 }
 
 bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out int data) {
-    rayOrigin -= c.pos * 64; // offset the ray to be inside the chunk
+    rayOrigin -= c.pos * c.size; // offset the ray to be inside the chunk
     rayOrigin += rayDirection * 1e-3; // push the ray forward a little bit to avoid it being outside of the chunk
 
     ivec3 voxel = ivec3(floor(rayOrigin));
@@ -89,7 +94,6 @@ bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out in
     return false;
 }
 
-
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     ivec2 imgSize = imageSize(destImage);
@@ -109,7 +113,6 @@ void main() {
     vec2 camRot = worldInfo.cameraRot;
     float time = worldInfo.posTime.w;
 
-
     // Quaternion for pitch (X-axis)
     vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(camRot.y*0.5), cos(camRot.y*0.5));
 
@@ -117,7 +120,7 @@ void main() {
     vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(camRot.x*0.5), cos(camRot.x*0.5));
 
     // Combine into single rotation
-    vec4 q = quatMultiply(qYaw, qPitch); // note: yaw * pitch
+    vec4 q = quatMultiply(qYaw, qPitch);
     dir = rotateVectorByQuat(dir, q);
 
     Ray ray = createRay(
@@ -134,13 +137,12 @@ void main() {
     while (true) {
         c = getIntersectingChunk(ray, intersection);
         if (!intersection.hit) break;
-        data;
         hit = DDAVoxels(c, ray.pos+ray.dir*intersection.near, intersection.far-intersection.near, ray.dir, data);
         if (hit) {
             color = getVoxelColor(data);
             break;
         }
-        ray.pos += ray.dir*intersection.far+ray.dir*1e-5;
+        ray.pos += ray.dir * intersection.far + ray.dir * 1e-5;
     }
     
     imageStore(destImage, pos, vec4(color, 1.0));

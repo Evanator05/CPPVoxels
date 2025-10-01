@@ -3,7 +3,12 @@
 
 #include "allocator.h"
 
-#define GPUBUFFERCOUNT 3
+#define GPUBUFFERCOUNT 4
+
+typedef struct _BufferSizes {
+    int voxelsSize;
+    int chunksSize;
+} BufferSizes;
 
 void gpubuffers_init(void);
 
@@ -24,5 +29,8 @@ void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&bu
 template <typename T>
 void gpubuffers_uploadBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
+void gpubuffers_uploadSizesBuffer(void);
+
+void gpubuffers_createSizesBuffer(void);
 void gpubuffers_createVoxelBuffer(void);
 void gpubuffers_createChunkBuffer(void);
