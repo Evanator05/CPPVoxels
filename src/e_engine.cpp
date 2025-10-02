@@ -7,6 +7,8 @@
 #include "i_gpubuffers.h"
 #include "worldinfo.h"
 
+#include "chunkbvh.h"
+
 #include "time.h"
 #include "stdlib.h"
 
@@ -33,7 +35,6 @@ void engine_init() {
     video_init();
     graphics_init();
     voxel_init();
-    //gpubuffers_init();
     
     for (int x = 0; x < 4; x++) {
         for (int z = 0; z < 4; z++) {
@@ -42,7 +43,7 @@ void engine_init() {
             }
         }
     }
-
+    
     srand(time(NULL));
     for (int i = 0; i < chunkData.size(); i++) {
         Chunk chunk = chunkData[i];
@@ -75,7 +76,7 @@ void engine_init() {
 
     gpubuffers_init();
     gpubuffers_upload();
-
+    bvh_buildFromChunks(chunkData);
     worldInfo_init();
 }
 

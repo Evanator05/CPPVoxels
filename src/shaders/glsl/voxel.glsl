@@ -19,3 +19,7 @@ vec3 getVoxelColor(int data) {
         float((data&VOXELBLUE) >> 10)  // get the blue data
     ) / float(VOXELRED);               // divide by 31 to make values 0-1
 }
+
+bool isVoxelSolid(int data) {
+    return (data&VOXELSOLID) != 0;
+}

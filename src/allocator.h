@@ -15,6 +15,7 @@ class Allocator {
         Allocation allocateData(uint32_t size);
         void freeData(Allocation data);
         void allocateEmpty(uint32_t size);
+        void clear(void);
         T* data(void);
         size_t size(void);
 
@@ -23,7 +24,6 @@ class Allocator {
         }
 
         void printStatus(void);
-    private:
         std::vector<T> allocationData;
         std::vector<Allocation> freeAllocationData;
 };
@@ -103,6 +103,11 @@ void Allocator<T>::allocateEmpty(uint32_t size) {
     freeAllocationData.push_back({0, size});
 }
 
+template <typename T>
+void Allocator<T>::clear() {
+    allocationData.clear();
+    freeAllocationData.clear();
+}
 
 template <typename T>
 T* Allocator<T>::data(void) {
