@@ -14,4 +14,4 @@ typedef struct _BVHNode {
 extern Allocator<BVHNode> chunkBVHData;
 
 void bvh_buildFromChunks(Allocator<Chunk> chunks);
-uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode);
+uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks);

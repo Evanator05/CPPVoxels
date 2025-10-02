@@ -11,21 +11,18 @@
 Allocator<BVHNode> chunkBVHData;
 
 void bvh_buildFromChunks(Allocator<Chunk> chunks) {
+    chunkBVHData.clear();
+
     std::vector<Chunk*> pchunks;
     for (Chunk &c : chunks.allocationData) {
         pchunks.push_back(&c);
     }
-    bvh_buildFromChunks(pchunks);
-
-    // for (BVHNode node : chunkBVHData.allocationData) {
-    //     printf("MIN : %u %u %u MAX : %u %u %u CENTER : %u %u %u\n", node.min.x, node.min.y, node.min.z, node.max.x, node.max.y, node.max.z, node.center.x, node.center.y, node.center.z);
-    // }
+    bvh_buildFromChunks(pchunks, chunks.data());
 }
 
-uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode) {
-    if (chunksInNode.size() == 1) { // if the node only has 1 chunk break free
+uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks) {
+    if (chunksInNode.size() == 1) // if the node only has 1 chunk break free
         return 0;    
-    } 
 
     BVHNode node{};
 
@@ -78,10 +75,9 @@ uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode) {
     for (uint8_t i = 0; i < 8; i++) {
         if (groups[i].size() == 1) { // set the node to have a chunk if there is only 1 chunk left in it
             node.hasChunk |= 1<<i;
-        }
-
-        if (!groups[i].empty()) {
-            node.childIndicies[i] = bvh_buildFromChunks(groups[i]);
+            node.childIndicies[i] =  groups[i][0] - baseChunks; // get the position of the chunk in the chunk data array
+        } else if (!groups[i].empty()) {
+            node.childIndicies[i] = bvh_buildFromChunks(groups[i], baseChunks);
         } else {
             node.childIndicies[i] = 0;
         }
