@@ -32,9 +32,9 @@ uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* base
         node.min.y = std::min(node.min.y, chunksInNode[0]->pos.y);
         node.min.z = std::min(node.min.z, chunksInNode[0]->pos.z);
 
-        node.max.x = std::min(node.max.x, chunksInNode[0]->pos.x+chunksInNode[0]->data.size.x/64);
-        node.max.y = std::min(node.max.y, chunksInNode[0]->pos.y+chunksInNode[0]->data.size.y/64);
-        node.max.z = std::min(node.max.z, chunksInNode[0]->pos.z+chunksInNode[0]->data.size.z/64);
+        node.max.x = std::max(node.max.x, chunksInNode[0]->pos.x+chunksInNode[0]->data.size.x/64);
+        node.max.y = std::max(node.max.y, chunksInNode[0]->pos.y+chunksInNode[0]->data.size.y/64);
+        node.max.z = std::max(node.max.z, chunksInNode[0]->pos.z+chunksInNode[0]->data.size.z/64);
     }
 
     // find center points
