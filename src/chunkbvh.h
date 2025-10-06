@@ -1,5 +1,7 @@
-#include "glm/vec3.hpp"
+#pragma once
 
+#include "glm/vec3.hpp"
+#include "SDL3/SDL_gpu.h"
 #include "allocator.h"
 #include "voxel.h"
 
@@ -13,5 +15,5 @@ typedef struct _BVHNode {
 
 extern Allocator<BVHNode> chunkBVHData;
 
-void bvh_buildFromChunks(Allocator<Chunk> chunks);
-uint32_t bvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks);
+void chunkbvh_buildFromChunks(Allocator<Chunk> chunks);
+uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks);

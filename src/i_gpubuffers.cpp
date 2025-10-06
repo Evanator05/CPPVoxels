@@ -5,6 +5,7 @@
 #include "voxel.h"
 #include "i_graphics.h"
 #include "worldinfo.h"
+#include "chunkbvh.h"
 
 SDL_GPUBuffer *sizesBuffer = nullptr;
 SDL_GPUTransferBuffer *sizesTransferBuffer = nullptr;

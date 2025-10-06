@@ -76,7 +76,7 @@ void engine_init() {
 
     gpubuffers_init();
     gpubuffers_upload();
-    bvh_buildFromChunks(chunkData);
+    chunkbvh_buildFromChunks(chunkData);
     worldInfo_init();
 }
 
