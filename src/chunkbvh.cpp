@@ -18,6 +18,10 @@ void chunkbvh_buildFromChunks(Allocator<Chunk> chunks) {
         pchunks.push_back(&c);
     }
     (void)chunkbvh_buildFromChunks(pchunks, chunks.data());
+
+    for (BVHNode n : chunkBVHData.allocationData) {
+        printf("MIN %u %u %u MAX %u %u %u CENTER %u %u %u\n", n.min.x, n.min.y, n.min.z, n.max.x, n.max.y, n.max.z, n.center.x, n.center.y, n.center.z);
+    }
 }
 
 uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks) {
@@ -26,36 +30,12 @@ uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* base
 
     BVHNode node{};
 
-    // find min and max
-    for (Chunk* c : chunksInNode) {
-        node.min.x = std::min(node.min.x, chunksInNode[0]->pos.x);
-        node.min.y = std::min(node.min.y, chunksInNode[0]->pos.y);
-        node.min.z = std::min(node.min.z, chunksInNode[0]->pos.z);
-
-        node.max.x = std::max(node.max.x, chunksInNode[0]->pos.x+chunksInNode[0]->data.size.x/64);
-        node.max.y = std::max(node.max.y, chunksInNode[0]->pos.y+chunksInNode[0]->data.size.y/64);
-        node.max.z = std::max(node.max.z, chunksInNode[0]->pos.z+chunksInNode[0]->data.size.z/64);
-    }
-
-    // find center points
-    int centerIndex = chunksInNode.size()/2;
-    auto centerIt = chunksInNode.begin() + chunksInNode.size() / 2;
-    glm::ivec3 centerPosition;
-    
-    std::nth_element(chunksInNode.begin(), centerIt, chunksInNode.end(),
-    [](const Chunk* a, const Chunk* b){ return a->pos.x < b->pos.x; });
-    centerPosition.x = chunksInNode[centerIndex]->pos.x; // get the center node with the median x value
-
-    std::nth_element(chunksInNode.begin(), centerIt, chunksInNode.end(),
-    [](const Chunk* a, const Chunk* b){ return a->pos.y < b->pos.y; });
-    centerPosition.y = chunksInNode[centerIndex]->pos.y; // get the center node with the median y value
-
-    std::nth_element(chunksInNode.begin(), centerIt, chunksInNode.end(),
-    [](const Chunk* a, const Chunk* b){ return a->pos.z < b->pos.z; });
-    centerPosition.z = chunksInNode[centerIndex]->pos.z; // get the center node with the median z value
+    // calculate bounding box and center
+    chunkbvh_calculateMinMax(chunksInNode, node.min, node.max);
+    chunkbvh_calculateCenter(chunksInNode, node.center);
 
     // scale values for worldspace
-    node.center = centerPosition*64;
+    node.center *= 64;
     node.max *= 64;
     node.min *= 64;
 
@@ -63,9 +43,9 @@ uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* base
     std::vector<Chunk*> groups[8];
     for(Chunk *c : chunksInNode) {
         uint8_t octant = 
-            (c->pos.x >= centerPosition.x) |
-            ((c->pos.y >= centerPosition.y) << 1) | 
-            ((c->pos.z >= centerPosition.z) << 2);
+            (c->pos.x*64 >= node.center.x) |
+            ((c->pos.y*64 >= node.center.y) << 1) | 
+            ((c->pos.z*64 >= node.center.z) << 2);
         groups[octant].push_back(c);
     }
 
@@ -86,4 +66,39 @@ uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* base
     
     chunkBVHData[a.index] = node;
     return a.index;
+}
+
+void chunkbvh_calculateMinMax(std::vector<Chunk*>& chunks, glm::ivec3 &min, glm::ivec3 &max) {
+
+    min = glm::ivec3(INT_MAX);
+    max = glm::ivec3(INT_MIN);
+
+    for (Chunk* c : chunks) {
+        min.x = std::min(min.x, c->pos.x);
+        min.y = std::min(min.y, c->pos.y);
+        min.z = std::min(min.z, c->pos.z);
+
+        max.x = std::max(max.x, c->pos.x+c->data.size.x/64);
+        max.y = std::max(max.y, c->pos.y+c->data.size.y/64);
+        max.z = std::max(max.z, c->pos.z+c->data.size.z/64);
+    }
+}
+
+void chunkbvh_calculateCenter(std::vector<Chunk*>& chunks, glm::ivec3 &center) {
+    center = glm::ivec3(0);
+    // find center points
+    int centerIndex = chunks.size()/2;
+    auto centerIt = chunks.begin() + chunks.size() / 2;
+    
+    std::nth_element(chunks.begin(), centerIt, chunks.end(),
+    [](const Chunk* a, const Chunk* b){ return a->pos.x < b->pos.x; });
+    center.x = chunks[centerIndex]->pos.x; // get the center node with the median x value
+
+    std::nth_element(chunks.begin(), centerIt, chunks.end(),
+    [](const Chunk* a, const Chunk* b){ return a->pos.y < b->pos.y; });
+    center.y = chunks[centerIndex]->pos.y; // get the center node with the median y value
+
+    std::nth_element(chunks.begin(), centerIt, chunks.end(),
+    [](const Chunk* a, const Chunk* b){ return a->pos.z < b->pos.z; });
+    center.z = chunks[centerIndex]->pos.z; // get the center node with the median z value
 }

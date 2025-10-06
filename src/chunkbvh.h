@@ -17,3 +17,5 @@ extern Allocator<BVHNode> chunkBVHData;
 
 void chunkbvh_buildFromChunks(Allocator<Chunk> chunks);
 uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* baseChunks);
+void chunkbvh_calculateMinMax(std::vector<Chunk*>& chunks, glm::ivec3 &min, glm::ivec3 &max);
+void chunkbvh_calculateCenter(std::vector<Chunk*>& chunks, glm::ivec3 &center);
