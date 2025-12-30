@@ -2,6 +2,7 @@
 
 #include "e_engine.h"
 #include "i_video.h"
+#include "i_input.h"
 #include "i_graphics.h"
 #include "voxel.h"
 #include "i_gpubuffers.h"
@@ -31,11 +32,7 @@ static inline uint32_t hash1(uint32_t x) {
     return x;
 }
 
-void engine_init() {
-    video_init();
-    graphics_init();
-    voxel_init();
-    
+void gen_test_chunks(void) {
     for (int x = 0; x < 4; x++) {
         for (int z = 0; z < 4; z++) {
             for (int y = 0; y < 4; y++) {
@@ -73,6 +70,14 @@ void engine_init() {
             
         }
     }
+}
+
+void engine_init() {
+    video_init();
+    graphics_init();
+    voxel_init();
+    
+    gen_test_chunks();
 
     gpubuffers_init();
     gpubuffers_upload();
@@ -91,24 +96,76 @@ uint32_t rand32() {
     return ((uint32_t)rand() << 30) ^ ((uint32_t)rand() << 15) ^ (uint32_t)rand();
 }
 
-void engine_update() {
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+void move_camera() {
+    constexpr float MOVESPEED = 0.2f;
+    constexpr float CAMSPEED  = 0.02f;
 
-    worldInfo.cameraPos = glm::vec3(
-        sin(worldInfo.time/20)*(sin(worldInfo.time/5)+1)*128+128,
-        150,
-        cos(worldInfo.time/20)*(sin(worldInfo.time/5)+1)*128+128
+    // Camera rotation
+
+    if (input_isheld(LOOK_UP))    worldInfo.cameraRot.y -= CAMSPEED;
+    if (input_isheld(LOOK_DOWN))  worldInfo.cameraRot.y += CAMSPEED;
+    if (input_isheld(LOOK_LEFT))  worldInfo.cameraRot.x -= CAMSPEED;
+    if (input_isheld(LOOK_RIGHT)) worldInfo.cameraRot.x += CAMSPEED;
+
+    // Clamp pitch to avoid flipping
+    constexpr float MAX_PITCH = glm::radians(89.0f);
+    worldInfo.cameraRot.y = glm::clamp(
+        worldInfo.cameraRot.y,
+        -MAX_PITCH,
+        MAX_PITCH
     );
-    worldInfo.cameraRot = glm::vec2(worldInfo.time/20+3.14,.2);
-    worldInfo_update();
-    printf("XYZ %0.2f %0.2f %0.2f PY %0.2f %0.2f T %0.2f\n", worldInfo.cameraPos.x, worldInfo.cameraPos.y, worldInfo.cameraPos.z, worldInfo.cameraRot.x, worldInfo.cameraRot.y, worldInfo.time);
 
-    // for (int i = 0; i < 1; i++) {
-    //     voxelData[rand32()%voxelData.size()].data = rand() | (VOXELSOLID*(rand()&1));
-    // }
-    // gpubuffers_upload();
-    
+    //Direction vectors
+
+    const float yaw   = worldInfo.cameraRot.x;
+    const float pitch = -worldInfo.cameraRot.y;
+
+    // Forward vector
+    glm::vec3 forward = glm::normalize(glm::vec3(
+        cosf(pitch) * sinf(yaw),
+        sinf(pitch),
+        cosf(pitch) * cosf(yaw)
+    ));
+
+    // Right vector
+    glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+    // Up vector
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));
+
+    // Movement input
+
+    glm::vec3 move(0.0f);
+
+    if (input_isheld(FORWARD))  move += forward;
+    if (input_isheld(BACKWARD)) move -= forward;
+    if (input_isheld(RIGHT))    move -= right;
+    if (input_isheld(LEFT))     move += right;
+    if (input_isheld(UP))       move += up;
+    if (input_isheld(DOWN))     move -= up;
+
+    // Prevent diagonal speed boost
+    if (glm::dot(move, move) > 0.0f) {
+        move = glm::normalize(move);
+    }
+
+    // Apply movement
+    worldInfo.cameraPos += move * MOVESPEED;
+}
+
+void engine_update() {
+    input_beginframe();
     video_update();
+
+    // handle game logic here
+    move_camera();
+
+    // start rendering
+    worldInfo_update();
     graphics_update();
+    input_endframe();
 }
 
 void engine_loop() {

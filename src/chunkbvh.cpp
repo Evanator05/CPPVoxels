@@ -69,7 +69,6 @@ uint32_t chunkbvh_buildFromChunks(std::vector<Chunk*>& chunksInNode, Chunk* base
 }
 
 void chunkbvh_calculateMinMax(std::vector<Chunk*>& chunks, glm::ivec3 &min, glm::ivec3 &max) {
-
     min = glm::ivec3(INT_MAX);
     max = glm::ivec3(INT_MIN);
 

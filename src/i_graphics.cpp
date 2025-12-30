@@ -40,15 +40,15 @@ void graphics_update(void) {
     Uint64 freq = SDL_GetPerformanceFrequency();
     frameCount++;
 
-    // Update FPS every 1 second
-    if ((currentCounter - lastCounter) > freq) {
+    // Update FPS every 0.1 second
+    if ((currentCounter - lastCounter) > freq*0.1) {
         fps = frameCount * (double)freq / (currentCounter - lastCounter);
         lastCounter = currentCounter;
         frameCount = 0;
+        char title[256];
+        sprintf(title, "FPS: %.2f\n", fps);
+        SDL_SetWindowTitle(window, title);
     }
-    char title[256];
-    sprintf(title, "FPS: %.2f\n", fps);
-    SDL_SetWindowTitle(window, title);
 
     drawFrame();
 }
@@ -87,8 +87,8 @@ void initComputePipeline() {
     createInfo.num_readwrite_storage_buffers = 0;
     createInfo.num_uniform_buffers = 0;
 
-    createInfo.threadcount_x = 32;
-    createInfo.threadcount_y = 32;
+    createInfo.threadcount_x = 16;
+    createInfo.threadcount_y = 16;
     createInfo.threadcount_z = 1;
 
     pipeline = SDL_CreateGPUComputePipeline(device, &createInfo);
