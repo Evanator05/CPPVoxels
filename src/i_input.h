@@ -22,10 +22,12 @@ typedef enum _INPUT_ACTIONS {
     LOOK_LEFT,
     LOOK_RIGHT,
     LOOK_UP,
-    LOOK_DOWN
+    LOOK_DOWN,
+    SPEEDUP,
+    SPEEDDOWN
 } INPUT_ACTIONS;
 
-#define BINDING_COUNT 10
+#define BINDING_COUNT 12
 
 void input_beginframe(void);
 void input_handleevent(const SDL_Event *e);

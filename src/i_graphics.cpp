@@ -6,7 +6,7 @@
 #include "voxel.h"
 #include "i_gpubuffers.h"
 
-#include "shaders/main.comp.spv.h"
+#include "shaders/main.h"
 
 SDL_GPUDevice* device = nullptr;
 SDL_GPUTexture* displayTexture = nullptr;
@@ -76,8 +76,8 @@ void initDisplayTexture() {
 void initComputePipeline() {
     SDL_GPUComputePipelineCreateInfo createInfo{};
     createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
-    createInfo.code = (const Uint8*)Shaders::main.data();
-    createInfo.code_size = Shaders::main.size()*4;
+    createInfo.code = (const Uint8*)main_spirv;
+    createInfo.code_size = std::size(main_spirv)*4;
     createInfo.entrypoint = "main";
 
     createInfo.num_readwrite_storage_textures = 1;

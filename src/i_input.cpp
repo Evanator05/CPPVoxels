@@ -1,6 +1,6 @@
 #include "i_input.h"
 
-SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_J, SDLK_L, SDLK_I, SDLK_K };
+SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_J, SDLK_L, SDLK_I, SDLK_K, SDLK_EQUALS, SDLK_MINUS };
 ACTIONSTATE input_action_states[BINDING_COUNT] = {};
 
 void input_beginframe() {

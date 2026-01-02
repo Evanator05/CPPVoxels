@@ -67,7 +67,6 @@ void gen_test_chunks(void) {
                 number = rand()%32;
                 voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+64));
             }
-            
         }
     }
 }
@@ -98,10 +97,19 @@ uint32_t rand32() {
 
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-void move_camera() {
-    constexpr float MOVESPEED = 0.2f;
-    constexpr float CAMSPEED  = 0.02f;
 
+float MOVESPEED = 0.2f;
+
+void move_camera() {
+    
+    float CAMSPEED  = 0.02f;
+    if (input_ispressed(SPEEDUP)) {
+        MOVESPEED += 0.1;
+    }
+
+    if (input_ispressed(SPEEDDOWN)) {
+        MOVESPEED -= 0.1;
+    }
     // Camera rotation
 
     if (input_isheld(LOOK_UP))    worldInfo.cameraRot.y -= CAMSPEED;
