@@ -17,21 +17,6 @@
 
 bool running = true;
 
-int toColor(int x) {
-    return x%32;
-}
-
-static inline uint32_t hash3(int x, int y, int z) {
-    return (uint32_t)(x * 73856093 ^ y * 19349663 ^ z * 83492791);
-}
-
-static inline uint32_t hash1(uint32_t x) {
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = (x >> 16) ^ x;
-    return x;
-}
-
 void gen_test_chunks(void) {
     for (int x = 0; x < 4; x++) {
         for (int z = 0; z < 4; z++) {
@@ -62,26 +47,192 @@ void gen_test_chunks(void) {
             int terrainHeight = (int)(120 + h1 + h2 + h3);
 
             if (gx%16 < 2 || gz%16 < 2 || gy%16 < 2) {
-                voxelData[offset+j].data = (rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+64));
+                voxelData[offset+j].data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+32));
             } else {
                 number = rand()%32;
-                voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+64));
+                voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+32));
             }
         }
     }
 }
+
+static inline int clampi(int v, int lo, int hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static inline float sdf_sphere(float x, float y, float z, float r) {
+    return (x*x + y*y + z*z) - r*r;
+}
+
+static inline float sdf_cylinder_y(float x, float z, float r) {
+    return (x*x + z*z) - r*r;
+}
+
+static inline float sdf_torus(float x, float y, float z, float R, float r) {
+    float qx = (x*x + z*z) - R*R;
+    return (qx*qx + y*y) - r*r;
+}
+
+void gen_chunks_sdf_ball_carved(void) {
+    const float BALL_RADIUS = 128.0f;
+    const glm::vec3 CENTER = glm::vec3(128,128,128);
+    const float EPS = 0.5f; // for numerical normal
+    const float MAX_CARVER_RADIUS = 40.0f + 14.0f;
+    const float BOUND = BALL_RADIUS + MAX_CARVER_RADIUS;
+
+    for (int ci = 0; ci < chunkData.size(); ci++) {
+        Chunk chunk = chunkData[ci];
+        int offset = chunk.data.index;
+
+        // --- slice caching buffers for previous, current, next z ---
+        float slice_prev_storage[64][64], slice_curr_storage[64][64], slice_next_storage[64][64];
+        float (*slice_prev)[64] = slice_prev_storage;
+        float (*slice_curr)[64] = slice_curr_storage;
+        float (*slice_next)[64] = slice_next_storage;
+
+        // precompute first two slices
+        auto full_sdf = [&](float x, float y, float z) -> float {
+            float d = sqrtf(x*x + y*y + z*z) - BALL_RADIUS;
+            d = fmaxf(d, -sqrtf(x*x + z*z) + 8.0f);
+            d = fmaxf(d, -sqrtf(y*y + z*z) + 6.0f);
+            d = fmaxf(d, -sqrtf(x*x + y*y) + 6.0f);
+            float qx = sqrtf(x*x + z*z) - 40.0f;
+            d = fmaxf(d, -sqrtf(qx*qx + y*y) + 5.0f);
+            d = fmaxf(d, -sqrtf(x*x + (y-32)*(y-32) + z*z) + 14.0f);
+            d = fmaxf(d, -sqrtf(x*x + (y+32)*(y+32) + z*z) + 14.0f);
+            return d;
+        };
+
+        // compute first slice
+        int z = 0;
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                float gx = x + chunk.pos.x * 64;
+                float gy = y + chunk.pos.y * 64;
+                float gz = z + chunk.pos.z * 64;
+                float px = gx - CENTER.x;
+                float py = gy - CENTER.y;
+                float pz = gz - CENTER.z;
+
+                float radial = sqrtf(px*px + py*py + pz*pz);
+                if (radial > BOUND) slice_curr[x][y] = BOUND + 1.0f; // outside
+                else slice_curr[x][y] = full_sdf(px, py, pz);
+            }
+        }
+
+        // compute second slice
+        if (64 > 1) {
+            int z_next = 1;
+            for (int y = 0; y < 64; y++) {
+                for (int x = 0; x < 64; x++) {
+                    float gx = x + chunk.pos.x * 64;
+                    float gy = y + chunk.pos.y * 64;
+                    float gz = z_next + chunk.pos.z * 64;
+                    float px = gx - CENTER.x;
+                    float py = gy - CENTER.y;
+                    float pz = gz - CENTER.z;
+
+                    float radial = sqrtf(px*px + py*py + pz*pz);
+                    if (radial > BOUND) slice_next[x][y] = BOUND + 1.0f;
+                    else slice_next[x][y] = full_sdf(px, py, pz);
+                }
+            }
+        }
+
+        // --- process all slices ---
+        for (z = 0; z < 64; z++) {
+            float (*slice_below)[64] = slice_prev;
+            float (*slice_curr_ptr)[64] = slice_curr;
+            float (*slice_above)[64] = slice_next;
+
+            for (int y = 0; y < 64; y++) {
+                for (int x = 0; x < 64; x++) {
+                    float dC = slice_curr_ptr[x][y];
+                    if (dC >= 0.0f) { voxelData[offset + x + y*64 + z*64*64].data = 0; continue; }
+
+                    // 6-face neighbors from cached slices
+                    float dXP = (x<63) ? slice_curr_ptr[x+1][y] : full_sdf((x+chunk.pos.x*64+1)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
+                    float dXN = (x>0) ? slice_curr_ptr[x-1][y] : full_sdf((x+chunk.pos.x*64-1)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
+                    float dYP = (y<63) ? slice_curr_ptr[x][y+1] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64+1)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
+                    float dYN = (y>0) ? slice_curr_ptr[x][y-1] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64-1)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
+                    float dZP = (z<63) ? slice_above[x][y] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64+1)-CENTER.z);
+                    float dZN = (z>0) ? slice_below[x][y] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64-1)-CENTER.z);
+
+                    // surface check
+                    if (dXP<0 && dXN<0 && dYP<0 && dYN<0 && dZP<0 && dZN<0) {
+                        voxelData[offset + x + y*64 + z*64*64].data = VOXELSOLID;
+                        continue;
+                    }
+
+                    // normal
+                    float nx = dXP - dXN;
+                    float ny = dYP - dYN;
+                    float nz = dZP - dZN;
+                    float nl = sqrtf(nx*nx + ny*ny + nz*nz) + 1e-6f;
+                    nx/=nl; ny/=nl; nz/=nl;
+
+                    // color
+                    int R = (int)(16 + ny*12);
+                    int G = (int)(12 + nx*10);
+                    int B = (int)(14 + nz*10);
+                    int stripe = ((int)(x*0.25f + z*0.25f)) & 3;
+                    R += stripe; G -= stripe;
+                    R = R<0?0:(R>31?31:R);
+                    G = G<0?0:(G>31?31:G);
+                    B = B<0?0:(B>31?31:B);
+
+                    voxelData[offset + x + y*64 + z*64*64].data = R | (G<<5) | (B<<10) | VOXELSOLID;
+                }
+            }
+
+            // shift slices for next iteration
+            float (*tmp)[64] = slice_prev;
+            slice_prev = slice_curr;
+            slice_curr = slice_next;
+            slice_next = tmp;
+
+            // compute next slice if exists
+            int znext = z + 2;
+            if (znext < 64) {
+                for (int y=0; y<64; y++)
+                    for (int x=0; x<64; x++) {
+                        float gx = x + chunk.pos.x*64;
+                        float gy = y + chunk.pos.y*64;
+                        float gz = znext + chunk.pos.z*64;
+                        float px = gx - CENTER.x;
+                        float py = gy - CENTER.y;
+                        float pz = gz - CENTER.z;
+                        float radial = sqrtf(px*px + py*py + pz*pz);
+                        if (radial > BOUND) slice_next[x][y] = BOUND+1.0f;
+                        else slice_next[x][y] = full_sdf(px, py, pz);
+                    }
+            }
+        }
+    }
+}
+
 
 void engine_init() {
     video_init();
     graphics_init();
     voxel_init();
     
-    gen_test_chunks();
+    for (int x = 0; x < 4; x++) {
+        for (int z = 0; z < 4; z++) {
+            for (int y = 0; y < 4; y++) {
+                voxel_chunkAllocate(glm::ivec3(x, y, z));
+            }
+        }
+    }
+
+    gen_chunks_sdf_ball_carved();
 
     gpubuffers_init();
     gpubuffers_upload();
     chunkbvh_buildFromChunks(chunkData);
     worldInfo_init();
+
+    input_set_mouse_lock(true);
 }
 
 void engine_cleanup() {
@@ -91,18 +242,12 @@ void engine_cleanup() {
     video_cleanup();
 }
 
-uint32_t rand32() {
-    return ((uint32_t)rand() << 30) ^ ((uint32_t)rand() << 15) ^ (uint32_t)rand();
-}
-
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
 float MOVESPEED = 0.2f;
 
 void move_camera() {
-    
-    float CAMSPEED  = 0.02f;
     if (input_ispressed(SPEEDUP)) {
         MOVESPEED += 0.1;
     }
@@ -110,12 +255,10 @@ void move_camera() {
     if (input_ispressed(SPEEDDOWN)) {
         MOVESPEED -= 0.1;
     }
-    // Camera rotation
+    glm::vec2 mouse_rel = input_getmouse_rel();
+    mouse_rel *= 0.005f;
+    worldInfo.cameraRot += (mouse_rel);
 
-    if (input_isheld(LOOK_UP))    worldInfo.cameraRot.y -= CAMSPEED;
-    if (input_isheld(LOOK_DOWN))  worldInfo.cameraRot.y += CAMSPEED;
-    if (input_isheld(LOOK_LEFT))  worldInfo.cameraRot.x -= CAMSPEED;
-    if (input_isheld(LOOK_RIGHT)) worldInfo.cameraRot.x += CAMSPEED;
 
     // Clamp pitch to avoid flipping
     constexpr float MAX_PITCH = glm::radians(89.0f);
@@ -125,8 +268,7 @@ void move_camera() {
         MAX_PITCH
     );
 
-    //Direction vectors
-
+    // Direction vectors
     const float yaw   = worldInfo.cameraRot.x;
     const float pitch = -worldInfo.cameraRot.y;
 
@@ -144,7 +286,6 @@ void move_camera() {
     glm::vec3 up = glm::normalize(glm::cross(right, forward));
 
     // Movement input
-
     glm::vec3 move(0.0f);
 
     if (input_isheld(FORWARD))  move += forward;
