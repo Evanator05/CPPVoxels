@@ -5,7 +5,6 @@
 #include "voxel.h"
 #include "i_graphics.h"
 #include "worldinfo.h"
-#include "chunkbvh.h"
 
 SDL_GPUBuffer *sizesBuffer = nullptr;
 SDL_GPUTransferBuffer *sizesTransferBuffer = nullptr;
@@ -15,6 +14,9 @@ SDL_GPUTransferBuffer *voxelTransferBuffer = nullptr;
 
 SDL_GPUBuffer *chunkBuffer = nullptr;
 SDL_GPUTransferBuffer *chunkTransferBuffer = nullptr;
+
+SDL_GPUBuffer *chunkOccupancyBuffer = nullptr;
+SDL_GPUTransferBuffer *chunkOccupancyTransferBuffer = nullptr;
 
 SDL_GPUCommandBuffer *gpubuffers_cmd = nullptr;
 SDL_GPUCopyPass *gpubuffers_cpy = nullptr;
@@ -27,6 +29,7 @@ void gpubuffers_createBuffers() {
     gpubuffers_createSizesBuffer();
     gpubuffers_createVoxelBuffer();
     gpubuffers_createChunkBuffer();
+    gpubuffers_createOccupancyBuffer();
 }
 
 void gpubuffers_cleanup() {
@@ -35,10 +38,12 @@ void gpubuffers_cleanup() {
     SDL_ReleaseGPUBuffer(device, sizesBuffer);
     SDL_ReleaseGPUBuffer(device, voxelBuffer);
     SDL_ReleaseGPUBuffer(device, chunkBuffer);
+    SDL_ReleaseGPUBuffer(device, chunkOccupancyBuffer);
 
     SDL_ReleaseGPUTransferBuffer(device, sizesTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, voxelTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, chunkTransferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, chunkOccupancyTransferBuffer);
 }
 
 void gpubuffers_upload() {
@@ -46,6 +51,7 @@ void gpubuffers_upload() {
     gpubuffers_uploadSizesBuffer();
     gpubuffers_uploadBufferFromAllocator(voxelData, voxelBuffer, voxelTransferBuffer);
     gpubuffers_uploadBufferFromAllocator(chunkData, chunkBuffer, chunkTransferBuffer);
+    gpubuffers_uploadBufferFromVector(chunkOccupancyMapData.data, chunkOccupancyBuffer, chunkOccupancyTransferBuffer);
     gpubuffers_finishUpload();
 }
 
@@ -87,9 +93,61 @@ void gpubuffers_uploadBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&bu
     SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
 }
 
+template <typename T>
+void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
+    if (data.size() == 0) return;
+
+    SDL_GPUDevice *device = graphics_getDevice();
+
+    // copy voxel data into transfer buffer
+    void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+    T *voxelPtr = (T*)ptr;
+    memcpy(voxelPtr, data.data(), data.size()*sizeof(T));
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+    // create transfer buffer location
+    SDL_GPUTransferBufferLocation tbl{};
+    tbl.transfer_buffer = transferBuffer;
+    tbl.offset = 0;
+
+    // create transfer buffer region
+    SDL_GPUBufferRegion br{};
+    br.buffer = buffer;
+    br.offset = 0;
+    br.size = data.size()*sizeof(T);
+
+    // upload to the buffer
+    SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
+}
+
 
 template <typename T>
 void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
+    SDL_GPUDevice *device = graphics_getDevice();
+
+    // if buffers already exist release them
+    if (buffer) SDL_ReleaseGPUBuffer(device, buffer);
+    if (transferBuffer) SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+
+    // create buffer
+    SDL_GPUBufferCreateInfo bci{};
+    bci.size = data.size()*sizeof(T);
+    bci.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    buffer = SDL_CreateGPUBuffer(device, &bci);
+
+    if (!buffer) std::cerr << "Failed to create buffer\n";
+
+    // create transfer buffer
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.size = data.size()*sizeof(T);
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    transferBuffer = SDL_CreateGPUTransferBuffer(device, &tbci);
+    
+    if (!transferBuffer) std::cerr << "Failed to create transfer buffer\n";
+}
+
+template <typename T>
+void gpubuffers_createBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
     SDL_GPUDevice *device = graphics_getDevice();
 
     // if buffers already exist release them
@@ -145,6 +203,8 @@ void gpubuffers_uploadSizesBuffer() {
     BufferSizes sizes{};
     sizes.voxelsSize = voxelData.size();
     sizes.chunksSize = chunkData.size();
+    sizes.chunkOccupancyMin = chunkOccupancyMapData.min;
+    sizes.chunkOccupancyMax = chunkOccupancyMapData.max;
     memcpy(ptr, &sizes, sizeof(BufferSizes));
     SDL_UnmapGPUTransferBuffer(device, sizesTransferBuffer);
 
@@ -171,11 +231,16 @@ void gpubuffers_createChunkBuffer() {
     gpubuffers_createBufferFromAllocator(chunkData, chunkBuffer, chunkTransferBuffer);
 }
 
+void gpubuffers_createOccupancyBuffer() {
+    gpubuffers_createBufferFromVector(chunkOccupancyMapData.data, chunkOccupancyBuffer, chunkOccupancyTransferBuffer);
+}
+
 SDL_GPUBuffer** gpubuffers_getVoxelBuffers() {
     static SDL_GPUBuffer* buffers[GPUBUFFERCOUNT];
     buffers[0] = worldInfoBuffer;
     buffers[1] = sizesBuffer;
     buffers[2] = voxelBuffer;
     buffers[3] = chunkBuffer;
+    buffers[4] = chunkOccupancyBuffer;
     return buffers;
 }

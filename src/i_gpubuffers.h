@@ -6,13 +6,13 @@
 
 #include "allocator.h"
 
-#define GPUBUFFERCOUNT 4
+#define GPUBUFFERCOUNT 5
 
 typedef struct _BufferSizes {
+    alignas(16) glm::ivec3 chunkOccupancyMin;
+    alignas(16) glm::ivec3 chunkOccupancyMax;
     int voxelsSize;
     int chunksSize;
-    glm::ivec3 chunkOccupancyMin;
-    glm::ivec3 chunkOccupancyMax;
 } BufferSizes;
 
 void gpubuffers_init(void);
@@ -32,7 +32,13 @@ template <typename T>
 void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
 template <typename T>
+void gpubuffers_createBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
+
+template <typename T>
 void gpubuffers_uploadBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
+
+template <typename T>
+void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
 void gpubuffers_uploadSizesBuffer(void);
 

@@ -12,7 +12,9 @@ layout(std430, set = 0, binding = 0) buffer WorldInfo {
     vec2 cameraRot;
 } worldInfo;
 
-layout(set = 0, binding = 1) buffer Sizes {
+layout(std430, set = 0, binding = 1) buffer Sizes {
+    ivec3 occupancyMin;
+    ivec3 occupancyMax;
     int voxels;
     int chunks;
 } sizes;
@@ -24,6 +26,10 @@ layout(set = 0, binding = 2) buffer Voxels {
 layout(set = 0, binding = 3) buffer Chunks {
     Chunk data[];
 } chunk;
+
+layout(set = 0, binding = 4) buffer Occupancy {
+    ChunkOccupancy data[];
+} occupancy;
 
 int getVoxel(int i) {
     int data = voxel.data[i/2];
@@ -51,18 +57,16 @@ Chunk getIntersectingChunk(Ray ray, out Intersection intersection) {
     return closestChunk;
 }
 
-bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out int data) {
-    rayOrigin -= c.pos * c.size;          // bring ray into chunk space
-    rayOrigin += rayDirection * 1e-3;     // nudge forward
+bool DDAVoxels(Chunk c, Ray ray, out int data) {
+    ray.pos -= c.pos * c.size;          // bring ray into chunk space
+    ray.pos += ray.dir * 1e-3;     // nudge forward
 
-    ivec3 voxel = ivec3(floor(rayOrigin));
-    vec3 step = sign(rayDirection);       // +1 or -1
+    ivec3 voxel = ivec3(floor(ray.pos));
+    vec3 step = sign(ray.dir);       // +1 or -1
 
     // branchless tMax computation
-    vec3 tMax = ((vec3(voxel) + step * 0.5 + 0.5) - rayOrigin) / rayDirection;
-    vec3 tDelta = abs(1.0 / rayDirection);
-
-    float traveled = 0.0;
+    vec3 tMax = ((vec3(voxel) + step * 0.5 + 0.5) - ray.pos) / ray.dir;
+    vec3 tDelta = abs(1.0 / ray.dir);
 
     for (;;) {
         // bounds check (can also be precomputed with clamp)
@@ -71,7 +75,7 @@ bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out in
             voxel.y >= 0 && voxel.y < c.size.y,
             voxel.z >= 0 && voxel.z < c.size.z
         );
-        if (!all(inBounds) || traveled > maxDist)
+        if (!all(inBounds))
             return false;
 
         int index = c.index + voxel.x + voxel.y * c.size.x + voxel.z * c.size.x * c.size.y;
@@ -85,10 +89,105 @@ bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out in
         voxel.x += int(step.x * float(tMax.x == tMin));
         voxel.y += int(step.y * float(tMax.y == tMin));
         voxel.z += int(step.z * float(tMax.z == tMin));
-        traveled = tMin;
+        
         tMax += vec3(tMax.x == tMin ? tDelta.x : 0.0,
                      tMax.y == tMin ? tDelta.y : 0.0,
                      tMax.z == tMin ? tDelta.z : 0.0);
+    }
+    return false;
+}
+
+bool DDAChunks(Ray ray, out int data) {
+    Box occupancyVolume = createBox(
+        sizes.occupancyMin * CHUNKWIDTH,
+        (sizes.occupancyMax - sizes.occupancyMin + ivec3(1)) * CHUNKWIDTH
+    );
+
+    Intersection occHit = intersectAABB(ray, occupancyVolume);
+    if (!occHit.hit)
+        return false;
+
+    vec3 rayStart = ray.pos + ray.dir * (occHit.near * 1.0001);
+    
+    const float CHUNK_SIZE = float(CHUNKWIDTH);
+
+    // --- WORLD chunk coords ---
+    ivec3 chunkWorld = ivec3(floor(rayStart / CHUNK_SIZE));
+
+    // --- LOCAL occupancy coords ---
+    ivec3 chunkPos = chunkWorld - sizes.occupancyMin;
+
+    ivec3 gridSize = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
+
+    // --- SAFE step ---
+    vec3 step = sign(ray.dir);
+
+    vec3 tDelta = abs(CHUNK_SIZE / ray.dir);
+
+    // --- NEXT WORLD boundary ---
+    vec3 nextBoundary = (vec3(chunkWorld) +
+        vec3(step.x > 0.0 ? 1.0 : 0.0,
+             step.y > 0.0 ? 1.0 : 0.0,
+             step.z > 0.0 ? 1.0 : 0.0)) * CHUNK_SIZE;
+
+    //vec3 tMax = (nextBoundary - rayStart) / ray.dir;
+    //vec3 tMax = ((vec3(chunkPos) + step * 0.5 + 0.5) - ray.pos) / ray.dir;
+    vec3 tMax = vec3(
+        ray.dir.x != 0.0 ? (nextBoundary.x - rayStart.x) / ray.dir.x : 1e30,
+        ray.dir.y != 0.0 ? (nextBoundary.y - rayStart.y) / ray.dir.y : 1e30,
+        ray.dir.z != 0.0 ? (nextBoundary.z - rayStart.z) / ray.dir.z : 1e30
+    );
+    float traveled = 0.0;
+
+    for (;;)
+    {
+        bvec3 inBounds = bvec3(
+            chunkPos.x >= 0 && chunkPos.x < gridSize.x,
+            chunkPos.y >= 0 && chunkPos.y < gridSize.y,
+            chunkPos.z >= 0 && chunkPos.z < gridSize.z
+        );
+
+        if (!all(inBounds))
+            return false;
+
+        int occIndex =
+            chunkPos.x +
+            chunkPos.y * gridSize.x +
+            chunkPos.z * gridSize.x * gridSize.y;
+
+        ChunkOccupancy occ = occupancy.data[occIndex];
+
+        if ((occ.flags & CHUNKFLAGS_EMPTY) != 0)
+        {
+            Chunk c = chunk.data[occ.index];
+
+            Ray vray;
+            vray.pos = clamp(rayStart + ray.dir * traveled,
+                 c.pos * c.size + vec3(1e-5),
+                 (c.pos + ivec3(1)) * c.size - vec3(1e-5));
+            vray.dir = ray.dir;
+            if (DDAVoxels(c, vray, data))
+                return true;
+        }
+
+        float tMin = min(min(tMax.x, tMax.y), tMax.z);
+
+        ivec3 stepMask = ivec3(
+            tMax.x == tMin,
+            tMax.y == tMin,
+            tMax.z == tMin
+        );
+
+        chunkPos += stepMask * ivec3(step);
+        chunkWorld += stepMask * ivec3(step);
+
+        traveled = tMin;
+
+        tMax += vec3(
+            stepMask.x != 0 ? tDelta.x : 0.0,
+            stepMask.y != 0 ? tDelta.y : 0.0,
+            stepMask.z != 0 ? tDelta.z : 0.0
+        );
     }
 }
 
@@ -127,22 +226,11 @@ void main() {
     );
 
     vec3 color = ray.dir;
-
-    Intersection intersection;
-    Chunk c;
-    bool hit;
     int data;
-    while (true) {
-        c = getIntersectingChunk(ray, intersection);
-        if (!intersection.hit) break; // if no chunk intersections found leave the loop
-
-        hit = DDAVoxels(c, ray.pos+ray.dir*intersection.near, intersection.far-intersection.near, ray.dir, data);
-        if (hit) { // if a voxel is hit leave the loop
-            color = getVoxelColor(data);
-            break;
-        }
-        ray.pos += ray.dir * intersection.far + ray.dir * 1e-5;
+    bool hit = DDAChunks(ray, data);
+    if (hit) {
+        color = getVoxelColor(data);
     }
-    
+
     imageStore(destImage, pos, vec4(color, 1.0));
 }

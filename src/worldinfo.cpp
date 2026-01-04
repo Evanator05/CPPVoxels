@@ -41,7 +41,6 @@ void worldInfo_TransforToGPU() {
     br.offset = 0;
     br.size = sizeof(WorldInfo);
 
-
     SDL_GPUCommandBuffer *gpubuffers_cmd = SDL_AcquireGPUCommandBuffer(device);
     SDL_GPUCopyPass *gpubuffers_cpy = SDL_BeginGPUCopyPass(gpubuffers_cmd);
     // upload to the buffer

@@ -5,7 +5,7 @@ Allocator<Voxel> voxelData;
 Allocator<Chunk> chunkData;
 //Allocator<Model> modelData;
 
-ChunkOccupancyMap chunkOccupancyMap;
+ChunkOccupancyMap chunkOccupancyMapData{};
 
 void voxel_init(void) {
     voxelData.allocateEmpty(CHUNKWIDTH*CHUNKWIDTH*CHUNKWIDTH*27); // preallocating 27 chunks of memory
@@ -41,28 +41,40 @@ void voxel_chunkFree(uint32_t index) {
 }
 
 void voxel_calculateChunkOccupancy() {
-    chunkOccupancyMap.min = glm::ivec3(INT_MAX);
-    chunkOccupancyMap.max = glm::ivec3(INT_MIN);
+    // Chunk-space bounds
+    chunkOccupancyMapData.min = glm::ivec3(INT_MAX);
+    chunkOccupancyMapData.max = glm::ivec3(INT_MIN);
 
-    // Find global bounds
-    for (const Chunk &c : chunkData.allocationData) {
-        chunkOccupancyMap.min = glm::min(chunkOccupancyMap.min, c.pos);
-        chunkOccupancyMap.max = glm::max(chunkOccupancyMap.max, c.pos + glm::ivec3(c.data.size) / 64);
+    // Find global chunk bounds
+    for (const Chunk& c : chunkData.allocationData) {
+        chunkOccupancyMapData.min = glm::min(chunkOccupancyMapData.min, c.pos);
+        chunkOccupancyMapData.max = glm::max(chunkOccupancyMapData.max, c.pos);
     }
 
-    glm::ivec3 gridSize = chunkOccupancyMap.max - chunkOccupancyMap.min;
+    // Inclusive bounds → +1
+    glm::ivec3 gridSize =
+        (chunkOccupancyMapData.max - chunkOccupancyMapData.min) + glm::ivec3(1);
 
-    // Resize occupancy vector, initialize to -1 (empty)
-    chunkOccupancyMap.data.resize(gridSize.x * gridSize.y * gridSize.z, {});
+    // Resize occupancy vector
+    chunkOccupancyMapData.data.clear();
+    chunkOccupancyMapData.data.resize(
+        gridSize.x * gridSize.y * gridSize.z,
+        {}
+    );
 
-    // Fill vector with chunk indices
+    // Fill occupancy map
     for (uint32_t i = 0; i < chunkData.allocationData.size(); ++i) {
-        const Chunk &c = chunkData.allocationData[i];
+        const Chunk& c = chunkData.allocationData[i];
 
-        uint32_t index = (c.pos.x - chunkOccupancyMap.min.x)
-                       + (c.pos.y - chunkOccupancyMap.min.y) * gridSize.x
-                       + (c.pos.z - chunkOccupancyMap.min.z) * gridSize.x * gridSize.y;
+        glm::ivec3 local =
+            c.pos - chunkOccupancyMapData.min;
 
-        chunkOccupancyMap.data[index] = {i, CHUNKOCCUPANCY_OCCUPIED}; // store index into allocationData
+        uint32_t index =
+            local.x +
+            local.y * gridSize.x +
+            local.z * gridSize.x * gridSize.y;
+
+        chunkOccupancyMapData.data[index] =
+            { i, CHUNKOCCUPANCY_OCCUPIED };
     }
 }

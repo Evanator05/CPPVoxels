@@ -33,7 +33,7 @@ foreach(GLSL ${GLSL_SRC_FILES})
         OUTPUT ${HDR}
         COMMAND ${GLSLANG_VALIDATOR}
             -V
-            --target-env vulkan1.2
+            --target-env vulkan1.1
             --vn ${VAR_NAME}
             -o ${HDR}
             ${GLSL}

@@ -13,6 +13,11 @@ struct Chunk {
 };
 #define CHUNKFLAGS_EMPTY 1
 
+struct ChunkOccupancy {
+    int index;
+    int flags;
+};
+
 vec3 getVoxelColor(int data) {
     return vec3(                       // values from 0-31
         float(data&VOXELRED),          // get the red date

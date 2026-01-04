@@ -18,14 +18,6 @@
 bool running = true;
 
 void gen_test_chunks(void) {
-    for (int x = 0; x < 4; x++) {
-        for (int z = 0; z < 4; z++) {
-            for (int y = 0; y < 4; y++) {
-                voxel_chunkAllocate(glm::ivec3(x, y, z));
-            }
-        }
-    }
-    
     srand(time(NULL));
     for (int i = 0; i < chunkData.size(); i++) {
         Chunk chunk = chunkData[i];
@@ -47,10 +39,10 @@ void gen_test_chunks(void) {
             int terrainHeight = (int)(120 + h1 + h2 + h3);
 
             if (gx%16 < 2 || gz%16 < 2 || gy%16 < 2) {
-                voxelData[offset+j].data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+32));
+                voxelData[offset+j].data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
             } else {
                 number = rand()%32;
-                voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+32));
+                voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
             }
         }
     }
@@ -217,6 +209,7 @@ void gen_caves(void) {
     const float AIR_THRESHOLD = 5.0f;
     FastNoiseLite noise;
     noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    srand(time(0));
     noise.SetSeed(rand());
     noise.SetFrequency(0.05f);
 
@@ -288,14 +281,14 @@ void gen_caves(void) {
                     nx/=nl; ny/=nl; nz/=nl;
 
                     // --- Color: stone base ---
-                    int R = 12 + rand()%4; // brownish gray
-                    int G = 12 + rand()%4;
-                    int B = 12 + rand()%4;
+                    int R = 10 + rand()%2; // brownish gray
+                    int G = 10 + rand()%1;
+                    int B = 10 + rand()%6;
 
                     // --- Grass if normal points mostly up ---
 
-                    if (-ny > 0.7f) {  // only upward-facing surfaces
-                        float blend = (-ny - 0.7f)/0.3f; // 0..1
+                    if (-ny > 0.5f) {  // only upward-facing surfaces
+                        float blend = (-ny - 0.5f)/0.5f; // 0..1
 
                         // green shades
                         int green_base = 22 + (rand()%6);
@@ -305,8 +298,8 @@ void gen_caves(void) {
                         int green = (int)(green_base*(1.0f-g_noise) + green_high*g_noise);
 
                         // smooth blend with stone
-                        R = (int)(R*(1.0f-blend) + 6*blend);
-                        G = (int)(G*(1.0f-blend) + green*blend);
+                        R = (int)(R*(1.0f-blend) + green*blend);
+                        G = (int)(G*(1.0f-blend) + 6*blend);
                         B = (int)(B*(1.0f-blend) + 6*blend);
 
                         // optional tip highlight
@@ -342,19 +335,20 @@ void engine_init() {
     graphics_init();
     voxel_init();
     
-    for (int x = 0; x < 4; x++) {
-        for (int z = 0; z < 4; z++) {
+    // generate world
+    for (int x = 0; x < 32; x++) {
+        for (int z = 0; z < 32; z++) {
             for (int y = 0; y < 4; y++) {
                 voxel_chunkAllocate(glm::ivec3(x, y, z));
             }
         }
     }
 
-    gen_caves();
+    gen_test_chunks();
 
+    voxel_calculateChunkOccupancy();
     gpubuffers_init();
     gpubuffers_upload();
-    chunkbvh_buildFromChunks(chunkData);
     worldInfo_init();
 
     input_set_mouse_lock(true);
