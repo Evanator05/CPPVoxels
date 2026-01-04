@@ -46,21 +46,20 @@ vec3 rotateVectorByQuat(vec3 v, vec4 q) {
 }
 
 Intersection intersectAABB(Ray ray, Box box) {
-    vec3 t1 = (box.pos - ray.pos) / ray.dir;
-    vec3 t2 = (box.pos+box.size - ray.pos) / ray.dir;
+    vec3 invDir = 1.0 / ray.dir;
 
-    vec3 intersectMin = min(t1, t2); // get the minimum intersection
-    vec3 intersectMax = max(t1, t2); // get the maximum intersection
+    vec3 t1 = (box.pos - ray.pos) * invDir;
+    vec3 t2 = (box.pos + box.size - ray.pos) * invDir;
     
-    float near = max(max(intersectMin.x, intersectMin.y), intersectMin.z); // get the near hit distance
-    float far  = min(min(intersectMax.x, intersectMax.y), intersectMax.z); // get the far hit fistance
+    float tmin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z));
+    float tmax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
     
-    if (near < 0.0) near = 0.0;
-
+    tmin = max(tmin, 0.0); // clamp near to 0
+    
     Intersection intersection;
-    intersection.near = near;
-    intersection.far = far;
-    intersection.hit = near <= far && far > 0.0; // get if the ray hit
-
+    intersection.near = tmin;
+    intersection.far = tmax;
+    intersection.hit = (tmin <= tmax) && (tmax > 0.0);
+    
     return intersection;
 }

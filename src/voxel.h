@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
+#include <vector>
 
 #include "allocator.h"
 
@@ -26,7 +27,7 @@ typedef struct _VoxelRegion {
 typedef struct _Chunk {
     glm::ivec3 pos;
     VoxelRegion data;
-    uint32_t pad;
+    uint32_t flags;
 } Chunk;
 
 typedef struct _FreeBlock {
@@ -45,9 +46,23 @@ typedef struct _Model {
     VoxelRegion data;
 } Model;
 
+typedef struct _ChunkOccupancy {
+    uint32_t index;
+    uint32_t flags;
+} ChunkOccupancy;
+
+typedef struct _ChunkOccupancyMap {
+    glm::ivec3 min;
+    glm::ivec3 max;
+    std::vector<ChunkOccupancy> data;
+} ChunkOccupancyMap;
+
+#define CHUNKOCCUPANCY_OCCUPIED 1
+
 extern Allocator<Voxel> voxelData;
 extern Allocator<Chunk> chunkData;
-extern Allocator<Model> modelData;
+extern ChunkOccupancyMap chunkOccupancyMapData;
+//extern Allocator<Model> modelData;
 
 void voxel_init(void);
 
@@ -82,3 +97,8 @@ void voxel_dataFree(VoxelRegion data);
  * @param index The index to free from the global `chunks` vector
  */
 void voxel_chunkFree(uint32_t index);
+
+/**
+ * @brief Calculates the chunk occupancy hashmap for quick lookup use
+ */
+void voxel_calculateChunkOccupancy(void);

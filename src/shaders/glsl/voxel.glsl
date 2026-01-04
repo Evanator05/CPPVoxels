@@ -9,8 +9,9 @@ struct Chunk {
 	ivec3 pos;
 	int index;
 	ivec3 size;
-    int pad;
+    int flags;
 };
+#define CHUNKFLAGS_EMPTY 1
 
 vec3 getVoxelColor(int data) {
     return vec3(                       // values from 0-31

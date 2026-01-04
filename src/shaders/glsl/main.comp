@@ -52,45 +52,44 @@ Chunk getIntersectingChunk(Ray ray, out Intersection intersection) {
 }
 
 bool DDAVoxels(Chunk c, vec3 rayOrigin, float maxDist, vec3 rayDirection, out int data) {
-    rayOrigin -= c.pos * c.size; // offset the ray to be inside the chunk
-    rayOrigin += rayDirection * 1e-3; // push the ray forward a little bit to avoid it being outside of the chunk
+    rayOrigin -= c.pos * c.size;          // bring ray into chunk space
+    rayOrigin += rayDirection * 1e-3;     // nudge forward
 
     ivec3 voxel = ivec3(floor(rayOrigin));
-    vec3 step = sign(rayDirection);
-    vec3 tMax;
+    vec3 step = sign(rayDirection);       // +1 or -1
+
+    // branchless tMax computation
+    vec3 tMax = ((vec3(voxel) + step * 0.5 + 0.5) - rayOrigin) / rayDirection;
     vec3 tDelta = abs(1.0 / rayDirection);
 
-    for (int i = 0; i < 3; i++) {
-        if (step[i] > 0.0)
-            tMax[i] = (float(voxel[i]) + 1.0 - rayOrigin[i]) * tDelta[i];
-        else
-            tMax[i] = (rayOrigin[i] - float(voxel[i])) * tDelta[i];
-    }
-
     float traveled = 0.0;
-    while (traveled < maxDist) {
-        if (voxel.x < 0 || voxel.y < 0 || voxel.z < 0 ||
-            voxel.x >= c.size.x || voxel.y >= c.size.y || voxel.z >= c.size.z) {
-            return false; // outside the chunk
-        }
+
+    for (;;) {
+        // bounds check (can also be precomputed with clamp)
+        bvec3 inBounds = bvec3(
+            voxel.x >= 0 && voxel.x < c.size.x,
+            voxel.y >= 0 && voxel.y < c.size.y,
+            voxel.z >= 0 && voxel.z < c.size.z
+        );
+        if (!all(inBounds) || traveled > maxDist)
+            return false;
+
         int index = c.index + voxel.x + voxel.y * c.size.x + voxel.z * c.size.x * c.size.y;
         data = getVoxel(index);
-
         if (isVoxelSolid(data))
             return true;
 
-        // Step along smallest tMax
-        vec3 c = vec3(tMax.x <= tMax.y && tMax.x <= tMax.z,
-              tMax.y <  tMax.x && tMax.y <= tMax.z,
-              tMax.z <  tMax.x && tMax.z <  tMax.y);
-
-        int axis = int(dot(c, vec3(0.0, 1.0, 2.0)));
-
-        voxel[axis] += int(step[axis]);
-        traveled = tMax[axis];
-        tMax[axis] += tDelta[axis];
+        // branchless: find axis with minimum tMax
+        float tMin = min(min(tMax.x, tMax.y), tMax.z);
+        // step voxel along min axis
+        voxel.x += int(step.x * float(tMax.x == tMin));
+        voxel.y += int(step.y * float(tMax.y == tMin));
+        voxel.z += int(step.z * float(tMax.z == tMin));
+        traveled = tMin;
+        tMax += vec3(tMax.x == tMin ? tDelta.x : 0.0,
+                     tMax.y == tMin ? tDelta.y : 0.0,
+                     tMax.z == tMin ? tDelta.z : 0.0);
     }
-    return false;
 }
 
 void main() {

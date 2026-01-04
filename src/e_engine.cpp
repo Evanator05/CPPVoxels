@@ -211,6 +211,131 @@ void gen_chunks_sdf_ball_carved(void) {
     }
 }
 
+#include "FastNoiseLite.h"
+void gen_caves(void) {
+    const float EPS = 0.5f;
+    const float AIR_THRESHOLD = 5.0f;
+    FastNoiseLite noise;
+    noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    noise.SetSeed(rand());
+    noise.SetFrequency(0.05f);
+
+    for (int ci = 0; ci < chunkData.size(); ci++) {
+        Chunk chunk = chunkData[ci];
+        int offset = chunk.data.index;
+
+        float slice_prev_storage[64][64], slice_curr_storage[64][64], slice_next_storage[64][64];
+        float (*slice_prev)[64] = slice_prev_storage;
+        float (*slice_curr)[64] = slice_curr_storage;
+        float (*slice_next)[64] = slice_next_storage;
+
+        auto calc_noise = [&](float gx, float gy, float gz) -> float {
+            float n = noise.GetNoise(gx, gy, gz) * 20.0f;
+            n -= sinf(gx*0.1f + gz*0.2f)*10.0f;
+            n -= cosf(gy*0.08f + gx*0.15f)*8.0f;
+            return n;
+        };
+
+        for (int y=0;y<64;y++)
+            for (int x=0;x<64;x++) {
+                float gx = x + chunk.pos.x*64;
+                float gy = y + chunk.pos.y*64;
+                float gz = 0 + chunk.pos.z*64;
+                slice_curr[x][y] = calc_noise(gx,gy,gz);
+            }
+        for (int y=0;y<64;y++)
+            for (int x=0;x<64;x++) {
+                float gx = x + chunk.pos.x*64;
+                float gy = y + chunk.pos.y*64;
+                float gz = 1 + chunk.pos.z*64;
+                slice_next[x][y] = calc_noise(gx,gy,gz);
+            }
+
+        for (int z=0; z<64; z++) {
+            float (*slice_below)[64] = slice_prev;
+            float (*slice_curr_ptr)[64] = slice_curr;
+            float (*slice_above)[64] = slice_next;
+
+            for (int y=0; y<64; y++) {
+                for (int x=0; x<64; x++) {
+                    float gx = x + chunk.pos.x*64;
+                    float gy = y + chunk.pos.y*64;
+                    float gz = 0 + chunk.pos.z*64;
+                    float dC = slice_curr_ptr[x][y];
+                    if (dC < AIR_THRESHOLD) {
+                        voxelData[offset + x + y*64 + z*64*64].data = 0;
+                        continue;
+                    }
+
+                    // 6-face neighbor check
+                    float dXP = (x<63)?slice_curr_ptr[x+1][y]:calc_noise(x+chunk.pos.x*64+1,y+chunk.pos.y*64,z+chunk.pos.z*64);
+                    float dXN = (x>0)?slice_curr_ptr[x-1][y]:calc_noise(x+chunk.pos.x*64-1,y+chunk.pos.y*64,z+chunk.pos.z*64);
+                    float dYP = (y<63)?slice_curr_ptr[x][y+1]:calc_noise(x+chunk.pos.x*64,y+chunk.pos.y*64+1,z+chunk.pos.z*64);
+                    float dYN = (y>0)?slice_curr_ptr[x][y-1]:calc_noise(x+chunk.pos.x*64,y+chunk.pos.y*64-1,z+chunk.pos.z*64);
+                    float dZP = (z<63)?slice_above[x][y]:calc_noise(x+chunk.pos.x*64,y+chunk.pos.y*64,z+chunk.pos.z*64+1);
+                    float dZN = (z>0)?slice_below[x][y]:calc_noise(x+chunk.pos.x*64,y+chunk.pos.y*64,z+chunk.pos.z*64-1);
+
+                    if (dXP< AIR_THRESHOLD && dXN< AIR_THRESHOLD && dYP< AIR_THRESHOLD && dYN< AIR_THRESHOLD && dZP< AIR_THRESHOLD && dZN< AIR_THRESHOLD) {
+                        voxelData[offset + x + y*64 + z*64*64].data = VOXELSOLID;
+                        continue;
+                    }
+
+                    // normal
+                    float nx = dXP - dXN;
+                    float ny = dYP - dYN;
+                    float nz = dZP - dZN;
+                    float nl = sqrtf(nx*nx + ny*ny + nz*nz) + 1e-6f;
+                    nx/=nl; ny/=nl; nz/=nl;
+
+                    // --- Color: stone base ---
+                    int R = 12 + rand()%4; // brownish gray
+                    int G = 12 + rand()%4;
+                    int B = 12 + rand()%4;
+
+                    // --- Grass if normal points mostly up ---
+
+                    if (-ny > 0.7f) {  // only upward-facing surfaces
+                        float blend = (-ny - 0.7f)/0.3f; // 0..1
+
+                        // green shades
+                        int green_base = 22 + (rand()%6);
+                        int green_high = 28 + (rand()%4);
+                        float g_noise = noise.GetNoise(gx*0.2f, gy*0.2f, gz*0.2f); // -1..1
+                        g_noise = (g_noise + 1.0f) * 0.5f; // 0..1
+                        int green = (int)(green_base*(1.0f-g_noise) + green_high*g_noise);
+
+                        // smooth blend with stone
+                        R = (int)(R*(1.0f-blend) + 6*blend);
+                        G = (int)(G*(1.0f-blend) + green*blend);
+                        B = (int)(B*(1.0f-blend) + 6*blend);
+
+                        // optional tip highlight
+                        int highlight = rand()%3;
+                        G = (G + highlight > 31) ? 31 : G + highlight;
+                    }
+
+                    voxelData[offset + x + y*64 + z*64*64].data = R | (G<<5) | (B<<10) | VOXELSOLID;
+                }
+            }
+
+            // shift slices
+            float (*tmp)[64] = slice_prev;
+            slice_prev = slice_curr;
+            slice_curr = slice_next;
+            slice_next = tmp;
+
+            int znext = z+2;
+            if (znext<64)
+                for (int y=0;y<64;y++)
+                    for (int x=0;x<64;x++) {
+                        float gx = x + chunk.pos.x*64;
+                        float gy = y + chunk.pos.y*64;
+                        float gz = znext + chunk.pos.z*64;
+                        slice_next[x][y] = calc_noise(gx,gy,gz);
+                    }
+        }
+    }
+}
 
 void engine_init() {
     video_init();
@@ -225,7 +350,7 @@ void engine_init() {
         }
     }
 
-    gen_chunks_sdf_ball_carved();
+    gen_caves();
 
     gpubuffers_init();
     gpubuffers_upload();
