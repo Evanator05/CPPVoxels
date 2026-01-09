@@ -211,7 +211,7 @@ void gen_caves(void) {
     noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
     srand(time(0));
     noise.SetSeed(rand());
-    noise.SetFrequency(0.05f);
+    noise.SetFrequency(0.02f);
 
     for (int ci = 0; ci < chunkData.size(); ci++) {
         Chunk chunk = chunkData[ci];
@@ -253,7 +253,7 @@ void gen_caves(void) {
                 for (int x=0; x<64; x++) {
                     float gx = x + chunk.pos.x*64;
                     float gy = y + chunk.pos.y*64;
-                    float gz = 0 + chunk.pos.z*64;
+                    float gz = z + chunk.pos.z*64;
                     float dC = slice_curr_ptr[x][y];
                     if (dC < AIR_THRESHOLD) {
                         voxelData[offset + x + y*64 + z*64*64].data = 0;
@@ -290,7 +290,7 @@ void gen_caves(void) {
                     if (-ny > 0.5f) {  // only upward-facing surfaces
                         float blend = (-ny - 0.5f)/0.5f; // 0..1
 
-                        // green shades
+                        // grass shades
                         int green_base = 22 + (rand()%6);
                         int green_high = 28 + (rand()%4);
                         float g_noise = noise.GetNoise(gx*0.2f, gy*0.2f, gz*0.2f); // -1..1
@@ -336,15 +336,15 @@ void engine_init() {
     voxel_init();
     
     // generate world
-    for (int x = 0; x < 32; x++) {
-        for (int z = 0; z < 32; z++) {
-            for (int y = 0; y < 4; y++) {
+    for (int x = 0; x < 8; x++) {
+        for (int z = 0; z < 8; z++) {
+            for (int y = 0; y < 8; y++) {
                 voxel_chunkAllocate(glm::ivec3(x, y, z));
             }
         }
     }
 
-    gen_test_chunks();
+    gen_caves();
 
     voxel_calculateChunkOccupancy();
     gpubuffers_init();

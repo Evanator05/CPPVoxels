@@ -78,3 +78,5 @@ void voxel_calculateChunkOccupancy() {
             { i, CHUNKOCCUPANCY_OCCUPIED };
     }
 }
+
+RayResult voxel_raycast_world(Ray ray);

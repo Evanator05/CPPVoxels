@@ -57,6 +57,17 @@ typedef struct _ChunkOccupancyMap {
     std::vector<ChunkOccupancy> data;
 } ChunkOccupancyMap;
 
+typedef struct _Ray {
+    glm::vec3 pos;
+    glm::vec3 dir;
+} Ray;
+
+typedef struct _RayResult {
+    glm::vec3 pos;
+    glm::vec3 normal;
+    Voxel voxel; // if the ray is hit will be stored as the VOXELSOLID bit in the voxel 
+} RayResult;
+
 #define CHUNKOCCUPANCY_OCCUPIED 1
 
 extern Allocator<Voxel> voxelData;
