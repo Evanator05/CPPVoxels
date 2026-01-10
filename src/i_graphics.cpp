@@ -36,20 +36,6 @@ static double fps = 0.0;
 static int frameCount = 0;
 
 void graphics_update(void) {
-    Uint64 currentCounter = SDL_GetPerformanceCounter();
-    Uint64 freq = SDL_GetPerformanceFrequency();
-    frameCount++;
-
-    // Update FPS every 0.1 second
-    if ((currentCounter - lastCounter) > freq*0.1) {
-        fps = frameCount * (double)freq / (currentCounter - lastCounter);
-        lastCounter = currentCounter;
-        frameCount = 0;
-        char title[256];
-        sprintf(title, "FPS: %.2f\n", fps);
-        SDL_SetWindowTitle(window, title);
-    }
-
     drawFrame();
 }
 

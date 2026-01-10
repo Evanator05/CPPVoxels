@@ -336,9 +336,9 @@ void engine_init() {
     voxel_init();
     
     // generate world
-    for (int x = 0; x < 8; x++) {
-        for (int z = 0; z < 8; z++) {
-            for (int y = 0; y < 8; y++) {
+    for (int x = 0; x < 4; x++) {
+        for (int z = 0; z < 4; z++) {
+            for (int y = 0; y < 4; y++) {
                 voxel_chunkAllocate(glm::ivec3(x, y, z));
             }
         }
@@ -364,16 +364,18 @@ void engine_cleanup() {
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-float MOVESPEED = 0.2f;
+float MOVESPEED = 50.0f;
 
-void move_camera() {
+void move_camera(double deltaTime) {
     if (input_ispressed(SPEEDUP)) {
-        MOVESPEED += 0.1;
+        MOVESPEED += 5.0;
     }
 
     if (input_ispressed(SPEEDDOWN)) {
-        MOVESPEED -= 0.1;
+        MOVESPEED -= 5.0;
     }
+    MOVESPEED = MOVESPEED < 0 ? 0 : MOVESPEED;
+
     glm::vec2 mouse_rel = input_getmouse_rel();
     mouse_rel *= 0.005f;
     worldInfo.cameraRot += (mouse_rel);
@@ -420,15 +422,15 @@ void move_camera() {
     }
 
     // Apply movement
-    worldInfo.cameraPos += move * MOVESPEED;
+    worldInfo.cameraPos += move * MOVESPEED * (float)deltaTime;
 }
 
-void engine_update() {
+void engine_update(double deltaTime) {
     input_beginframe();
     video_update();
 
     // handle game logic here
-    move_camera();
+    move_camera(deltaTime);
 
     // start rendering
     worldInfo_update();
@@ -437,8 +439,26 @@ void engine_update() {
 }
 
 void engine_loop() {
+    uint64_t currentTicks = SDL_GetPerformanceCounter();
+    uint64_t lastTicks = 0;
+    double deltaTime = 0;
+    double updateTimer = 0;
     while(running) {
-        engine_update();
+        lastTicks = currentTicks;
+        currentTicks = SDL_GetPerformanceCounter();
+        deltaTime = (double)(currentTicks-lastTicks)/(double)SDL_GetPerformanceFrequency();
+
+        updateTimer += deltaTime;
+
+        if (updateTimer > 1.0) {
+            char title[256];
+            sprintf(title, "FPS: %u\n", (unsigned int)(1/deltaTime));
+            SDL_SetWindowTitle(window, title);
+            updateTimer = 0.0;
+        }
+        
+
+        engine_update(deltaTime);
     }
 }
 

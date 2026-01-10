@@ -1,3 +1,18 @@
+# ------------------------------------------------------------
+# Place executables in a dedicated output directory
+# ------------------------------------------------------------
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/../bin
+)
+
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/../bin
+)
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/../lib
+)
+
 cmake_minimum_required(VERSION 3.10)
 project(Voxels)
 
@@ -68,7 +83,10 @@ target_link_libraries(Voxels
     SDL3
 )
 
-target_link_options(Voxels PRIVATE -static-libgcc -static-libstdc++)
+target_link_options(Voxels PRIVATE
+    -static-libgcc
+    -static-libstdc++
+)
 
 # Ensure shaders are built first
 add_dependencies(Voxels Shaders)

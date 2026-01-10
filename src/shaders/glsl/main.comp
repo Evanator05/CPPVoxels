@@ -41,7 +41,7 @@ bool DDAVoxels(Chunk c, Ray ray, out int data) {
     ray.pos -= c.pos * c.size; // bring ray into chunk space
     ray.pos += ray.dir * 1e-3; // nudge forward
 
-    ivec3 voxel = ivec3(floor(ray.pos));
+    ivec3 voxel = ivec3(ray.pos);
     vec3 step = sign(ray.dir); // +1 or -1
 
     // branchless tMax computation
@@ -159,18 +159,22 @@ bool DDAChunks(Ray ray, out int data) {
     return false;
 }
 
+vec2 getUV(ivec2 pos, ivec2 size) {
+    float aspectRatio = float(size.x)/size.y;
+    vec2 uv = vec2(pos)/size;
+    uv *= 2;
+    uv -= 1;
+    uv.y *= -1;
+    uv.x *= aspectRatio;
+    return uv;
+}
+
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     ivec2 imgSize = imageSize(destImage);
     if (pos.x >= imgSize.x || pos.y >= imgSize.y) return; // dont do pixels that are outside of the texture
 
-    float aspectRatio = float(imgSize.x)/imgSize.y;
-    
-    vec2 uv = vec2(pos)/imgSize;
-    uv *= 2;
-    uv -= 1;
-    uv.y *= -1;
-    uv.x *= aspectRatio;
+    vec2 uv = getUV(pos, imgSize);
 
     vec3 dir = normalize(vec3(uv, 1.0));
 

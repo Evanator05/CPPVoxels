@@ -5,7 +5,7 @@ void engine_init(void);
 void engine_cleanup(void);
 
 // one frame update of the engine
-void engine_update(void);
+void engine_update(double deltaTime);
 
 // the main loop of the engine
 void engine_loop(void);

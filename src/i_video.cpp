@@ -10,7 +10,14 @@ void video_init(void) {
         return;
     }
     
-    window = SDL_CreateWindow("Voxels", 2560, 1440, SDL_WINDOW_VULKAN | SDL_WINDOW_FULLSCREEN);
+    // SDL_DisplayID display = SDL_GetPrimaryDisplay();
+
+    // const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display);
+    // if (!mode) {
+    //     SDL_Log("Failed to get display mode: %s", SDL_GetError());
+    // }
+
+    window = SDL_CreateWindow("Voxels", 0, 0, SDL_WINDOW_VULKAN | SDL_WINDOW_FULLSCREEN);
     if (!window) {
         SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
         return;
