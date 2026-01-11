@@ -7,8 +7,7 @@
 #include "voxel.h"
 #include "i_gpubuffers.h"
 #include "worldinfo.h"
-
-#include "chunkbvh.h"
+#include "i_gui.h"
 
 #include "time.h"
 #include "stdlib.h"
@@ -333,6 +332,7 @@ void gen_caves(void) {
 void engine_init() {
     video_init();
     graphics_init();
+    gui_init();
     voxel_init();
     
     // generate world
@@ -357,6 +357,7 @@ void engine_init() {
 void engine_cleanup() {
     worldInfo_cleanup();
     gpubuffers_cleanup();
+    gui_cleanup();
     graphics_cleanup();
     video_cleanup();
 }
@@ -378,9 +379,10 @@ void move_camera(double deltaTime) {
 
     glm::vec2 mouse_rel = input_getmouse_rel();
     mouse_rel *= 0.005f;
-    worldInfo.cameraRot += (mouse_rel);
-
-
+    if (input_get_mouse_lock()) {
+        worldInfo.cameraRot += (mouse_rel);
+    }
+    
     // Clamp pitch to avoid flipping
     constexpr float MAX_PITCH = glm::radians(89.0f);
     worldInfo.cameraRot.y = glm::clamp(
@@ -413,24 +415,59 @@ void move_camera(double deltaTime) {
     if (input_isheld(BACKWARD)) move -= forward;
     if (input_isheld(RIGHT))    move -= right;
     if (input_isheld(LEFT))     move += right;
-    if (input_isheld(UP))       move += up;
-    if (input_isheld(DOWN))     move -= up;
+    if (input_isheld(UP))       move += glm::vec3(0.0f, 1.0f, 0.0f);
+    if (input_isheld(DOWN))     move -= glm::vec3(0.0f, 1.0f, 0.0f);
 
     // Prevent diagonal speed boost
-    if (glm::dot(move, move) > 0.0f) {
+    if (glm::dot(move, move) > 0.1f) {
         move = glm::normalize(move);
-    }
+    } else move = glm::vec3(0.0f);
 
     // Apply movement
     worldInfo.cameraPos += move * MOVESPEED * (float)deltaTime;
 }
 
+int fps = 0;
+void draw_fps_debug(float fps, float frameTimeMs)
+{
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(150, 130), ImVec2(150, 130));
+    ImGui::Begin("Performance", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+
+    // Color-coded FPS
+    ImVec4 fpsColor;
+    if (fps >= 60.0f)        fpsColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // green
+    else if (fps >= 30.0f)   fpsColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // yellow
+    else                     fpsColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // red
+
+    ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
+    ImGui::Text("Frame Time: %.2f ms", frameTimeMs);
+
+    // Optional: simple FPS history graph
+    static float fpsHistory[120] = {0};
+    static int idx = 0;
+    fpsHistory[idx] = fps;
+    idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
+
+    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 100.0f, ImVec2(130, 50));
+
+    ImGui::End();
+}
+
+
 void engine_update(double deltaTime) {
     input_beginframe();
     video_update();
+    gui_begin_frame();
 
     // handle game logic here
     move_camera(deltaTime);
+
+    if (input_ispressed(TOGGLE_MOUSE_LOCK)) {
+        input_set_mouse_lock(!input_get_mouse_lock());
+    }
+
+    draw_fps_debug(fps, deltaTime*1000);
 
     // start rendering
     worldInfo_update();
@@ -443,21 +480,24 @@ void engine_loop() {
     uint64_t lastTicks = 0;
     double deltaTime = 0;
     double updateTimer = 0;
+    int samples = 0;
+    int fpsSum = 0;
+    
     while(running) {
         lastTicks = currentTicks;
         currentTicks = SDL_GetPerformanceCounter();
         deltaTime = (double)(currentTicks-lastTicks)/(double)SDL_GetPerformanceFrequency();
 
         updateTimer += deltaTime;
-
-        if (updateTimer > 1.0) {
-            char title[256];
-            sprintf(title, "FPS: %u\n", (unsigned int)(1/deltaTime));
-            SDL_SetWindowTitle(window, title);
+        fpsSum += (unsigned int)(1/deltaTime);
+        samples++;
+        if (updateTimer > 0.1) {
+            fps = fpsSum/samples;
             updateTimer = 0.0;
+            samples = 0;
+            fpsSum = 0;
         }
         
-
         engine_update(deltaTime);
     }
 }

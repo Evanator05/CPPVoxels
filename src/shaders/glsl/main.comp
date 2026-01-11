@@ -39,7 +39,7 @@ int getVoxel(int i) {
 
 bool DDAVoxels(Chunk c, Ray ray, out int data) {
     ray.pos -= c.pos * c.size; // bring ray into chunk space
-    ray.pos += ray.dir * 1e-3; // nudge forward
+    ray.pos += sign(ray.dir) * 1e-3; // nudge forward
 
     ivec3 voxel = ivec3(ray.pos);
     vec3 step = sign(ray.dir); // +1 or -1

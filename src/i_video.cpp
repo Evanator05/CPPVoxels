@@ -1,6 +1,7 @@
 #include "i_video.h"
 #include "e_engine.h"
 #include "i_input.h"
+#include "i_gui.h"
 
 SDL_Window *window = NULL;
 
@@ -33,6 +34,7 @@ void video_cleanup(void) {
 void video_update(void) {
     SDL_Event event;
     while(SDL_PollEvent(&event)) {
+        gui_process_event(&event);
         switch (event.type) {
             case SDL_EVENT_QUIT:
                 engine_quit();

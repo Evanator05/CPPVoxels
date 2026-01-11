@@ -26,6 +26,7 @@ typedef enum _INPUT_ACTIONS {
     DOWN,
     SPEEDUP,
     SPEEDDOWN,
+    TOGGLE_MOUSE_LOCK,
     BINDING_COUNT
 } INPUT_ACTIONS;
 
@@ -40,5 +41,5 @@ bool input_isreleased(INPUT_ACTIONS action);
 
 glm::vec2 input_getmouse_rel();
 
-
 void input_set_mouse_lock(bool lock);
+bool input_get_mouse_lock(void);

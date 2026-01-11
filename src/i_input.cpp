@@ -1,6 +1,6 @@
 #include "i_input.h"
 
-SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_EQUALS, SDLK_MINUS };
+SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_EQUALS, SDLK_MINUS, SDLK_L };
 ACTIONSTATE input_action_states[BINDING_COUNT] = {};
 
 glm::vec2 mouse_rel = {};
@@ -63,4 +63,8 @@ glm::vec2 input_getmouse_rel() {
 void input_set_mouse_lock(bool lock) {
     SDL_SetWindowMouseGrab(video_get_window(), lock);
     SDL_SetWindowRelativeMouseMode(video_get_window(), lock);
+}
+
+bool input_get_mouse_lock() {
+    return SDL_GetWindowMouseGrab(video_get_window());
 }
