@@ -37,7 +37,7 @@ int getVoxel(int i) {
     return data&0xFFFF; // mask lower bits
 }
 
-bool DDAVoxels(Chunk c, Ray ray, out int data) {
+bool DDAVoxels(Chunk c, Ray ray, out float dist) {
     ray.pos -= c.pos * c.size; // bring ray into chunk space
     ray.pos += sign(ray.dir) * 1e-3; // nudge forward
 
@@ -47,18 +47,21 @@ bool DDAVoxels(Chunk c, Ray ray, out int data) {
     // branchless tMax computation
     vec3 tMax = ((vec3(voxel) + step * 0.5 + 0.5) - ray.pos) / ray.dir;
     vec3 tDelta = abs(1.0 / ray.dir);
-
+    float traveled = 0.0;
     while (voxel.x >= 0 && voxel.x < c.size.x &&
             voxel.y >= 0 && voxel.y < c.size.y &&
             voxel.z >= 0 && voxel.z < c.size.z) {
 
         int index = c.index + voxel.x + voxel.y * c.size.x + voxel.z * c.size.x * c.size.y;
-        data = getVoxel(index);
-        if (isVoxelSolid(data))
+        int data = getVoxel(index);
+        if (isVoxelSolid(data)) {
+            dist = traveled;
             return true;
+        }
 
         // find axis with minimum tMax
         float tMin = min(min(tMax.x, tMax.y), tMax.z);
+        traveled = tMin;
         // step voxel along min axis
         ivec3 stepMask = ivec3(
             tMax.x == tMin,
@@ -77,7 +80,7 @@ bool DDAVoxels(Chunk c, Ray ray, out int data) {
     return false;
 }
 
-bool DDAChunks(Ray ray, out int data) {
+bool DDAChunks(Ray ray, out float dist) {
     // move ray to the start of chunk bounds
     ivec3 gridSize = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
     Box occupancyVolume = createBox(
@@ -129,12 +132,16 @@ bool DDAChunks(Ray ray, out int data) {
 
         if ((occ.flags & CHUNKFLAGS_EMPTY) != 0) {
             Chunk c = chunk.data[occ.index];
+            float vDist;
             if (DDAVoxels(c,
                 Ray(
                     rayStart + ray.dir * traveled,
                     ray.dir),
-                data))
-                return true;
+                vDist)) {
+                    dist = traveled + vDist + occHit.near;
+                    return true;
+                }
+                
         }
 
         float tMin = min(min(tMax.x, tMax.y), tMax.z);
@@ -200,10 +207,10 @@ void main() {
     vec3 color = ray.dir;
     color = vec3(0.05);
 
-    int data;
-    bool hit = DDAChunks(ray, data);
+    float dist;
+    bool hit = DDAChunks(ray, dist);
     if (hit) {
-        color = getVoxelColor(data);
+        color.r = dist/200;
     }
 
     imageStore(destImage, pos, vec4(color.zyx, 1.0));

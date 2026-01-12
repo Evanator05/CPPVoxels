@@ -16,7 +16,7 @@ SDL_GPUDevice* graphics_getDevice(void);
 void initDevice(void);
 
 // create the display texture
-void initDisplayTexture(void);
+void initDisplayTextures(void);
 
 // create the compute pipeline
 void initComputePipeline(void);

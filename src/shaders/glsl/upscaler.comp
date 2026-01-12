@@ -1,0 +1,35 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set=1, binding = 0, r32f) uniform readonly image2D halfDepth;
+layout(set=1, binding = 1, r32f) uniform writeonly image2D fullDepth;
+
+void main()
+{
+    ivec2 fullCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    ivec2 fullSize = imageSize(fullDepth);
+    if (any(greaterThanEqual(fullCoord, fullSize)))
+        return;
+
+    // Map full-res pixel -> half-res pixel
+    ivec2 halfCoord = fullCoord >> 1;
+
+    ivec2 halfSize = imageSize(halfDepth);
+
+    // Clamp to avoid out of bounds reads
+    ivec2 h0 = clamp(halfCoord, ivec2(0), halfSize - 1);
+    ivec2 h1 = clamp(halfCoord + ivec2(1, 0), ivec2(0), halfSize - 1);
+    ivec2 h2 = clamp(halfCoord + ivec2(0, 1), ivec2(0), halfSize - 1);
+    ivec2 h3 = clamp(halfCoord + ivec2(1, 1), ivec2(0), halfSize - 1);
+
+    float d0 = imageLoad(halfDepth, h0).r;
+    float d1 = imageLoad(halfDepth, h1).r;
+    float d2 = imageLoad(halfDepth, h2).r;
+    float d3 = imageLoad(halfDepth, h3).r;
+
+    float minDepth = min(min(d0, d1), min(d2, d3));
+
+    imageStore(fullDepth, fullCoord, vec4(minDepth));
+}

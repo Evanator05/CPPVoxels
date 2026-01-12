@@ -11,10 +11,10 @@ void gui_init() {
 
     ImGui::StyleColorsDark();
 
-    // Platform backend (window + input)
+    // Platform backend
     ImGui_ImplSDL3_InitForSDLGPU(video_get_window());
 
-    // Renderer backend (THIS WAS MISSING)
+    // Renderer backend
     ImGui_ImplSDLGPU3_InitInfo init{};
     init.Device = graphics_getDevice();
     init.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(graphics_getDevice(), video_get_window()); // or your swapchain format
@@ -35,13 +35,11 @@ void gui_begin_frame() {
 
 void gui_render(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass)
 {
-    
-    
     ImGui_ImplSDLGPU3_RenderDrawData(
         ImGui::GetDrawData(),
         cmd,
         pass,
-        nullptr   // let ImGui use its internal pipeline
+        nullptr
     );
 }
 

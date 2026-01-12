@@ -1,6 +1,6 @@
 #include "imgui.h"
 #include "backends/imgui_impl_sdl3.h"
-#include "backends/imgui_impl_sdlgpu3.h" // Or equivalent SDLGPU backend
+#include "backends/imgui_impl_sdlgpu3.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 

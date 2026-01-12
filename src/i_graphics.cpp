@@ -8,11 +8,31 @@
 #include "i_gui.h"
 
 #include "shaders/main.h"
-
+#include "shaders/halfresdepth.h"
 
 SDL_GPUDevice* device = nullptr;
-SDL_GPUTexture* displayTexture = nullptr;
-SDL_GPUComputePipeline* pipeline = nullptr;
+
+// textures
+typedef struct _RenderTextures {
+    enum Type { HalfDepth, FullDepth, IndexMap, Display, Count };
+    SDL_GPUTexture* tex[Count]{};
+
+    SDL_GPUTexture*& halfResDepth() { return tex[HalfDepth]; }
+    SDL_GPUTexture*& fullResDepth() { return tex[FullDepth]; }
+    SDL_GPUTexture*& indexMap()     { return tex[IndexMap]; }
+    SDL_GPUTexture*& display()      { return tex[Display]; }
+
+    void cleanup() {
+        for (int i = 0; i < Count; i++) {
+            if (tex[i]) SDL_ReleaseGPUTexture(device, tex[i]);
+        }
+    }
+} RenderTextures;
+
+RenderTextures renderTextures{};
+
+// pipelines
+SDL_GPUComputePipeline* mainDisplayPipeline = nullptr;
 
 int winw, winh;
 
@@ -20,7 +40,7 @@ void graphics_init(void) {
     SDL_GetWindowSize(window, &winw, &winh);
 
     initDevice();
-    initDisplayTexture();
+    initDisplayTextures();
     initComputePipeline();
 
     //SDL_SetGPUAllowedFramesInFlight(device, 3);
@@ -28,8 +48,10 @@ void graphics_init(void) {
 }
 
 void graphics_cleanup(void) {
-    if (pipeline) SDL_ReleaseGPUComputePipeline(device, pipeline);
-    if (displayTexture) SDL_ReleaseGPUTexture(device, displayTexture);
+    if (mainDisplayPipeline) SDL_ReleaseGPUComputePipeline(device, mainDisplayPipeline);
+
+    renderTextures.cleanup();    
+
     if (device) SDL_DestroyGPUDevice(device);
 }
 
@@ -43,8 +65,48 @@ void initDevice() {
     SDL_ClaimWindowForGPUDevice(device, window);
 }
 
-void initDisplayTexture() {
+void initDisplayTextures() {
+    // halfres depth
     SDL_GPUTextureCreateInfo createInfo{};
+    createInfo.width = (Uint32)winw/2;
+    createInfo.height = (Uint32)winh/2;
+    createInfo.layer_count_or_depth = 1;
+    createInfo.num_levels = 1;
+    createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    createInfo.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ;
+
+    renderTextures.halfResDepth() = SDL_CreateGPUTexture(device, &createInfo);
+    if (!renderTextures.halfResDepth()) std::cerr << "Failed to create halfres depth Texture\n";
+
+    // fullres depth
+    createInfo = {};
+    createInfo.width = (Uint32)winw;
+    createInfo.height = (Uint32)winh;
+    createInfo.layer_count_or_depth = 1;
+    createInfo.num_levels = 1;
+    createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    createInfo.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ;
+
+    renderTextures.fullResDepth() = SDL_CreateGPUTexture(device, &createInfo);
+    if (!renderTextures.fullResDepth()) std::cerr << "Failed to create fullres depth Texture\n";
+    
+    // index map
+    createInfo = {};
+    createInfo.width = (Uint32)winw;
+    createInfo.height = (Uint32)winh;
+    createInfo.layer_count_or_depth = 1;
+    createInfo.num_levels = 1;
+    createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    createInfo.format = SDL_GPU_TEXTUREFORMAT_R32G32_UINT;
+    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ;
+
+    renderTextures.indexMap() = SDL_CreateGPUTexture(device, &createInfo);
+    if (!renderTextures.indexMap()) std::cerr << "Failed to create fullres depth Texture\n";
+
+    // display texture
+    createInfo = {};
     createInfo.width = (Uint32)winw;
     createInfo.height = (Uint32)winh;
     createInfo.layer_count_or_depth = 1;
@@ -53,15 +115,15 @@ void initDisplayTexture() {
     createInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
 
-    displayTexture = SDL_CreateGPUTexture(device, &createInfo);
-    if (!displayTexture) std::cerr << "Failed to create Display Texture\n";
+    renderTextures.display() = SDL_CreateGPUTexture(device, &createInfo);
+    if (!renderTextures.display()) std::cerr << "Failed to create Display Texture\n";
 }
 
 void initComputePipeline() {
     SDL_GPUComputePipelineCreateInfo createInfo{};
     createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
-    createInfo.code = (const Uint8*)main_spirv;
-    createInfo.code_size = std::size(main_spirv)*sizeof(*main_spirv);
+    createInfo.code = (const Uint8*)halfresdepth_spirv;
+    createInfo.code_size = std::size(halfresdepth_spirv)*sizeof(*halfresdepth_spirv);
     createInfo.entrypoint = "main";
 
     createInfo.num_readwrite_storage_textures = 1;
@@ -75,16 +137,16 @@ void initComputePipeline() {
     createInfo.threadcount_y = 16;
     createInfo.threadcount_z = 1;
 
-    pipeline = SDL_CreateGPUComputePipeline(device, &createInfo);
-    if (!pipeline) std::cerr << "Failed to create compute pipeline\n";
+    mainDisplayPipeline = SDL_CreateGPUComputePipeline(device, &createInfo);
+    if (!mainDisplayPipeline) std::cerr << "Failed to create compute pipeline\n";
 }
 
 void drawFrame(void) {
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
     
-    // half res primary depth pass
+    // half res depth pass
 
-    // upscale to full res depth pass
+    // upscale to full res primary ray starting depths
     
     // full res voxel index/visible voxel pass + maybe some other per voxel information
 
@@ -92,12 +154,12 @@ void drawFrame(void) {
 
     // main draw pass / combine color with lighting pass
     SDL_GPUStorageTextureReadWriteBinding rw{};
-    rw.texture = displayTexture;
+    rw.texture = renderTextures.display();
     rw.mip_level = 0;
     rw.layer = 0;
 
     SDL_GPUComputePass* cpass = SDL_BeginGPUComputePass(cmd, &rw, 1, nullptr, 0);
-    SDL_BindGPUComputePipeline(cpass, pipeline);
+    SDL_BindGPUComputePipeline(cpass, mainDisplayPipeline);
 
     // bind buffers
     SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
@@ -112,39 +174,23 @@ void drawFrame(void) {
     Uint32 sw = 0, sh = 0;
     SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapTex, &sw, &sh);
 
+    // copy image into swaptexture
     if (swapTex) {
-        SDL_GPUBlitInfo bi{};
-
-        bi.source.texture = displayTexture;
-        bi.source.x = 0;
-        bi.source.y = 0;
-        bi.source.w = winw;
-        bi.source.h = winh;
-
-        bi.destination.texture = swapTex;
-        bi.destination.x = 0;
-        bi.destination.y = 0;
-        bi.destination.w = sw;
-        bi.destination.h = sh;
-
-        bi.load_op = SDL_GPU_LOADOP_DONT_CARE;
-        bi.filter = SDL_GPU_FILTER_NEAREST;
-
-        SDL_BlitGPUTexture(cmd, &bi);
+        SDL_GPUTextureLocation sourceLoc{};
+        sourceLoc.texture = renderTextures.display();
+        SDL_GPUTextureLocation destLoc{};
+        destLoc.texture = swapTex;
+        SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(cmd);
+        SDL_CopyGPUTextureToTexture(copyPass, &sourceLoc, &destLoc, sw, sh, 1, false);
+        SDL_EndGPUCopyPass(copyPass);
     }
-
     
     // render GUI
     {
         SDL_GPUColorTargetInfo color{};
         color.texture = swapTex;
-
-        /* Preserve your compute output */
         color.load_op  = SDL_GPU_LOADOP_LOAD;
         color.store_op = SDL_GPU_STOREOP_STORE;
-
-        /* Required defaults */
-        color.clear_color = {0, 0, 0, 0};  // ignored because LOAD
         color.mip_level   = 0;
 
         ImGui::Render();

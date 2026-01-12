@@ -415,8 +415,8 @@ void move_camera(double deltaTime) {
     if (input_isheld(BACKWARD)) move -= forward;
     if (input_isheld(RIGHT))    move -= right;
     if (input_isheld(LEFT))     move += right;
-    if (input_isheld(UP))       move += glm::vec3(0.0f, 1.0f, 0.0f);
-    if (input_isheld(DOWN))     move -= glm::vec3(0.0f, 1.0f, 0.0f);
+    if (input_isheld(UP))       move += up;
+    if (input_isheld(DOWN))     move -= up;
 
     // Prevent diagonal speed boost
     if (glm::dot(move, move) > 0.1f) {
@@ -441,7 +441,7 @@ void draw_fps_debug(float fps, float frameTimeMs)
     else                     fpsColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // red
 
     ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
-    ImGui::Text("Frame Time: %.2f ms", frameTimeMs);
+    ImGui::Text("Frame Time: %02.2f ms", frameTimeMs);
 
     // Optional: simple FPS history graph
     static float fpsHistory[120] = {0};
@@ -449,7 +449,7 @@ void draw_fps_debug(float fps, float frameTimeMs)
     fpsHistory[idx] = fps;
     idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
 
-    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 100.0f, ImVec2(130, 50));
+    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 500.0f, ImVec2(130, 50));
 
     ImGui::End();
 }
@@ -465,6 +465,22 @@ void engine_update(double deltaTime) {
 
     if (input_ispressed(TOGGLE_MOUSE_LOCK)) {
         input_set_mouse_lock(!input_get_mouse_lock());
+    }
+
+    if (input_ispressed(SWAP_SCENE_1)) {
+        gen_caves();
+        gpubuffers_upload();
+    }
+    if (input_ispressed(SWAP_SCENE_2)) {
+        gen_chunks_sdf_ball_carved();
+        gpubuffers_upload();
+    }
+    if (input_ispressed(SWAP_SCENE_3)) {
+        gen_test_chunks();
+        gpubuffers_upload();
+    }
+    if (input_ispressed(SWAP_SCENE_4)) {
+        gpubuffers_upload();
     }
 
     draw_fps_debug(fps, deltaTime*1000);
