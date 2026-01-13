@@ -8,14 +8,15 @@
 #include "i_gui.h"
 
 #include "shaders/main.h"
-#include "shaders/halfresdepth.h"
+#include "shaders/depth.h"
+#include "shaders/upscaler.h"
 
 SDL_GPUDevice* device = nullptr;
 
 // textures
 typedef struct _RenderTextures {
     enum Type { HalfDepth, FullDepth, IndexMap, Display, Count };
-    SDL_GPUTexture* tex[Count]{};
+    SDL_GPUTexture *tex[Count]{};
 
     SDL_GPUTexture*& halfResDepth() { return tex[HalfDepth]; }
     SDL_GPUTexture*& fullResDepth() { return tex[FullDepth]; }
@@ -25,14 +26,31 @@ typedef struct _RenderTextures {
     void cleanup() {
         for (int i = 0; i < Count; i++) {
             if (tex[i]) SDL_ReleaseGPUTexture(device, tex[i]);
+            tex[i] == nullptr;
         }
     }
 } RenderTextures;
 
-RenderTextures renderTextures{};
+typedef struct _ComputePipelines {
+    enum Type {HalfDepth, Upscale, IndexMap, Display, Count };
+    SDL_GPUComputePipeline *pipelines[Count]{};
 
-// pipelines
-SDL_GPUComputePipeline* mainDisplayPipeline = nullptr;
+    SDL_GPUComputePipeline*& halfResDepth() { return pipelines[HalfDepth]; }
+    SDL_GPUComputePipeline*& upscaler() { return pipelines[Upscale]; }
+    SDL_GPUComputePipeline*& indexMap()     { return pipelines[IndexMap]; }
+    SDL_GPUComputePipeline*& display()      { return pipelines[Display]; }
+
+    void cleanup() {
+        for (int i = 0; i < Count; i++) {
+            if (pipelines[i]) SDL_ReleaseGPUComputePipeline(device, pipelines[i]);
+            pipelines[i] == nullptr;
+        }
+    }
+
+} ComputePipelines;
+
+RenderTextures renderTextures{};
+ComputePipelines computePipelines{};
 
 int winw, winh;
 
@@ -48,8 +66,7 @@ void graphics_init(void) {
 }
 
 void graphics_cleanup(void) {
-    if (mainDisplayPipeline) SDL_ReleaseGPUComputePipeline(device, mainDisplayPipeline);
-
+    computePipelines.cleanup();
     renderTextures.cleanup();    
 
     if (device) SDL_DestroyGPUDevice(device);
@@ -87,7 +104,7 @@ void initDisplayTextures() {
     createInfo.num_levels = 1;
     createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
     createInfo.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
-    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ;
+    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_TEXTUREUSAGE_SAMPLER;
 
     renderTextures.fullResDepth() = SDL_CreateGPUTexture(device, &createInfo);
     if (!renderTextures.fullResDepth()) std::cerr << "Failed to create fullres depth Texture\n";
@@ -120,10 +137,11 @@ void initDisplayTextures() {
 }
 
 void initComputePipeline() {
+    // half res depth pass
     SDL_GPUComputePipelineCreateInfo createInfo{};
     createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
-    createInfo.code = (const Uint8*)halfresdepth_spirv;
-    createInfo.code_size = std::size(halfresdepth_spirv)*sizeof(*halfresdepth_spirv);
+    createInfo.code = (const Uint8*)depth_spirv;
+    createInfo.code_size = std::size(depth_spirv)*sizeof(*depth_spirv);
     createInfo.entrypoint = "main";
 
     createInfo.num_readwrite_storage_textures = 1;
@@ -137,39 +155,123 @@ void initComputePipeline() {
     createInfo.threadcount_y = 16;
     createInfo.threadcount_z = 1;
 
-    mainDisplayPipeline = SDL_CreateGPUComputePipeline(device, &createInfo);
-    if (!mainDisplayPipeline) std::cerr << "Failed to create compute pipeline\n";
+    computePipelines.halfResDepth() = SDL_CreateGPUComputePipeline(device, &createInfo);
+    if (!computePipelines.halfResDepth()) std::cerr << "Failed to create depth pass compute pipeline\n";
+
+    // upscaler
+    createInfo = {};
+    createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    createInfo.code = (const Uint8*)upscaler_spirv;
+    createInfo.code_size = std::size(upscaler_spirv)*sizeof(*upscaler_spirv);
+    createInfo.entrypoint = "main";
+
+    createInfo.num_readwrite_storage_textures = 2;
+    createInfo.num_samplers = 0;
+    createInfo.num_readonly_storage_textures = 0;
+    createInfo.num_readonly_storage_buffers = 0;
+    createInfo.num_readwrite_storage_buffers = 0;
+    createInfo.num_uniform_buffers = 0;
+
+    createInfo.threadcount_x = 8;
+    createInfo.threadcount_y = 8;
+    createInfo.threadcount_z = 1;
+
+    computePipelines.upscaler() = SDL_CreateGPUComputePipeline(device, &createInfo);
+    if (!computePipelines.upscaler()) std::cerr << "Failed to create upscaler compute pipeline\n";
+
+    // main
+    createInfo = {};
+    createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    createInfo.code = (const Uint8*)main_spirv;
+    createInfo.code_size = std::size(main_spirv)*sizeof(*main_spirv);
+    createInfo.entrypoint = "main";
+
+    createInfo.num_readwrite_storage_textures = 2;
+    createInfo.num_samplers = 0;
+    createInfo.num_readonly_storage_textures = 0;
+    createInfo.num_readonly_storage_buffers = GPUBUFFERCOUNT;
+    createInfo.num_readwrite_storage_buffers = 0;
+    createInfo.num_uniform_buffers = 0;
+
+    createInfo.threadcount_x = 16;
+    createInfo.threadcount_y = 16;
+    createInfo.threadcount_z = 1;
+
+    computePipelines.display() = SDL_CreateGPUComputePipeline(device, &createInfo);
+    if (!computePipelines.display()) std::cerr << "Failed to create compute pipeline\n";
 }
 
 void drawFrame(void) {
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
     
     // half res depth pass
+    {
+        SDL_GPUStorageTextureReadWriteBinding rw{};
+        rw.texture = renderTextures.halfResDepth();
+        rw.mip_level = 0;
+        rw.layer = 0;
+
+        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, &rw, 1, nullptr, 0);
+        SDL_BindGPUComputePipeline(cpass, computePipelines.halfResDepth());
+
+        // bind buffers
+        SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
+
+        Uint32 localSize = 16;
+        Uint32 groupsX = (winw+localSize-1)/localSize;
+        Uint32 groupsY = (winh+localSize-1)/localSize;
+        SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
+        SDL_EndGPUComputePass(cpass);
+    }
+    
 
     // upscale to full res primary ray starting depths
-    
+    {
+        SDL_GPUStorageTextureReadWriteBinding upscaleBindings[2]{};
+        upscaleBindings[0].texture = renderTextures.halfResDepth();
+        upscaleBindings[0].mip_level = 0;
+        upscaleBindings[0].layer = 0;
+
+        upscaleBindings[1].texture = renderTextures.fullResDepth();
+        upscaleBindings[1].mip_level = 0;
+        upscaleBindings[1].layer = 0;
+
+        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, upscaleBindings, 2, nullptr, 0);
+        
+        SDL_BindGPUComputePipeline(cpass, computePipelines.upscaler());
+
+        Uint32 localSize = 8;
+        Uint32 groupsX = (winw+localSize-1)/localSize;
+        Uint32 groupsY = (winh+localSize-1)/localSize;
+        SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
+        SDL_EndGPUComputePass(cpass);
+    }
     // full res voxel index/visible voxel pass + maybe some other per voxel information
 
     // visible voxel lighting pass
 
     // main draw pass / combine color with lighting pass
-    SDL_GPUStorageTextureReadWriteBinding rw{};
-    rw.texture = renderTextures.display();
-    rw.mip_level = 0;
-    rw.layer = 0;
+    {
+        SDL_GPUStorageTextureReadWriteBinding rw[2]{};
+        rw[0].texture = renderTextures.display();
+        rw[0].mip_level = 0;
+        rw[0].layer = 0;
+        rw[1].texture = renderTextures.fullResDepth();
+        rw[1].mip_level = 0;
+        rw[1].layer = 0;
 
-    SDL_GPUComputePass* cpass = SDL_BeginGPUComputePass(cmd, &rw, 1, nullptr, 0);
-    SDL_BindGPUComputePipeline(cpass, mainDisplayPipeline);
+        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw, 2, nullptr, 0);
+        SDL_BindGPUComputePipeline(cpass, computePipelines.display());
 
-    // bind buffers
-    SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
+        // bind buffers
+        SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
 
-    const int localSize = 16;
-    Uint32 groupsX = (winw+localSize-1)/localSize;
-    Uint32 groupsY = (winh+localSize-1)/localSize;
-    SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
-    SDL_EndGPUComputePass(cpass);
-
+        Uint32 localSize = 16;
+        Uint32 groupsX = (winw+localSize-1)/localSize;
+        Uint32 groupsY = (winh+localSize-1)/localSize;
+        SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
+        SDL_EndGPUComputePass(cpass);
+    }
     SDL_GPUTexture *swapTex = nullptr;
     Uint32 sw = 0, sh = 0;
     SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapTex, &sw, &sh);

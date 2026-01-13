@@ -6,6 +6,7 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(set=1, binding = 0, rgba8) uniform writeonly image2D destImage;
+layout(set=1, binding = 1, r32f) uniform readonly image2D depthImage;
 
 layout(set = 0, binding = 0) buffer WorldInfo {
     vec4 posTime;
@@ -197,6 +198,8 @@ void main() {
         dir
     );
 
+    float depth = imageLoad(depthImage, pos).r;
+    ray.pos += ray.dir*depth;
     vec3 color = ray.dir;
     color = vec3(0.05);
 
@@ -205,6 +208,6 @@ void main() {
     if (hit) {
         color = getVoxelColor(data);
     }
-
-    imageStore(destImage, pos, vec4(color.zyx, 1.0));
+    //color = color * (depth/60.0);
+    imageStore(destImage, pos, vec4(color.bgr, 1.0));
 }

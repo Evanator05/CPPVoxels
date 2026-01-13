@@ -446,10 +446,10 @@ void draw_fps_debug(float fps, float frameTimeMs)
     // Optional: simple FPS history graph
     static float fpsHistory[120] = {0};
     static int idx = 0;
-    fpsHistory[idx] = fps;
+    fpsHistory[idx] = frameTimeMs;
     idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
 
-    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 500.0f, ImVec2(130, 50));
+    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 30.0f, ImVec2(130, 50));
 
     ImGui::End();
 }
