@@ -1,6 +1,6 @@
 #include "i_input.h"
 
-SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_EQUALS, SDLK_MINUS, SDLK_L, SDLK_1, SDLK_2, SDLK_3, SDLK_4 };
+SDL_Keycode input_bindings[BINDING_COUNT] = { SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_SPACE, SDLK_LSHIFT, SDLK_EQUALS, SDLK_MINUS, SDLK_L, SDLK_1, SDLK_2, SDLK_3, SDLK_4, SDLK_E };
 ACTIONSTATE input_action_states[BINDING_COUNT] = {};
 
 glm::vec2 mouse_rel = {};

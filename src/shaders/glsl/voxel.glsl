@@ -18,7 +18,7 @@ struct ChunkOccupancy {
     int flags;
 };
 
-vec3 getVoxelColor(int data) {
+vec3 getVoxelColor(uint data) {
     return vec3(                       // values from 0-31
         float(data&VOXELRED),          // get the red date
         float((data&VOXELGREEN) >> 5), // get the green data
@@ -26,6 +26,6 @@ vec3 getVoxelColor(int data) {
     ) / float(VOXELRED);               // divide by 31 to make values 0-1
 }
 
-bool isVoxelSolid(int data) {
+bool isVoxelSolid(uint data) {
     return (data&VOXELSOLID) != 0;
 }

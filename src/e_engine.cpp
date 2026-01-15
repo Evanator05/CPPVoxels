@@ -367,6 +367,15 @@ void engine_cleanup() {
 
 float MOVESPEED = 50.0f;
 
+inline int floor_div(int a, int b) {
+    return (a >= 0) ? a / b : ((a - (b - 1)) / b);
+}
+
+inline int floor_mod(int a, int b) {
+    int r = a % b;
+    return (r < 0) ? r + b : r;
+}
+
 void move_camera(double deltaTime) {
     if (input_ispressed(SPEEDUP)) {
         MOVESPEED += 5.0;
@@ -425,6 +434,53 @@ void move_camera(double deltaTime) {
 
     // Apply movement
     worldInfo.cameraPos += move * MOVESPEED * (float)deltaTime;
+
+    // block breaking
+    if (input_isheld(BREAK_BLOCK)) {
+        glm::ivec3 wp = glm::floor(worldInfo.cameraPos + forward);
+
+        glm::ivec3 chunkspace = {
+            floor_div(wp.x, 64),
+            floor_div(wp.y, 64),
+            floor_div(wp.z, 64)
+        };
+
+        glm::ivec3 cspace = {
+            floor_mod(wp.x, 64),
+            floor_mod(wp.y, 64),
+            floor_mod(wp.z, 64)
+        };
+
+        // Bounds check chunk map
+        if (chunkspace.x < 0 || chunkspace.x >= 64 ||
+            chunkspace.y < 0 || chunkspace.y >= 64 ||
+            chunkspace.z < 0 || chunkspace.z >= 64)
+            return;
+
+        glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
+        uint32_t chunkMapIndex =
+            chunkspace.x +
+            chunkspace.y * csize.x+
+            chunkspace.z * csize.x * csize.y;
+
+        auto occ = chunkOccupancyMapData.data[chunkMapIndex];
+
+        // Chunk not present?
+        if (occ.flags == 0)
+            return;
+
+        uint32_t voxelIndex =
+            chunkData[occ.index].data.index +
+            cspace.x +
+            cspace.y * 64 +
+            cspace.z * 64 * 64;
+
+        printf("World: %u %u %u, Chunk: %u %u %u\n", chunkspace.x, chunkspace.y, chunkspace.z, cspace.x, cspace.y, cspace.z);
+        voxelData[voxelIndex].data = 0;
+        gpubuffers_upload();
+        
+    }
+    
 }
 
 int fps = 0;
@@ -443,7 +499,7 @@ void draw_fps_debug(float fps, float frameTimeMs)
     ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
     ImGui::Text("Frame Time: %02.2f ms", frameTimeMs);
 
-    // Optional: simple FPS history graph
+    // Optional: simple FPS histograph
     static float fpsHistory[120] = {0};
     static int idx = 0;
     fpsHistory[idx] = frameTimeMs;

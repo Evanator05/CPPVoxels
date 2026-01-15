@@ -5,7 +5,8 @@
 #include "ray.glsl"
 
 layout(local_size_x = 16, local_size_y = 16) in;
-layout(set=1, binding = 0, r32f) uniform writeonly image2D destImage;
+layout(set=1, binding = 0, rg32ui) uniform writeonly uimage2D destImage;
+layout(set=1, binding = 1, r32f) uniform readonly image2D depthImage;
 
 layout(set = 0, binding = 0) buffer WorldInfo {
     vec4 posTime;
@@ -15,12 +16,12 @@ layout(set = 0, binding = 0) buffer WorldInfo {
 layout(set = 0, binding = 1) buffer Sizes {
     ivec3 occupancyMin;
     ivec3 occupancyMax;
-    int voxels;
-    int chunks;
+    uint voxels;
+    uint chunks;
 } sizes;
 
 layout(set = 0, binding = 2) buffer Voxels {
-    int data[];
+    uint data[];
 } voxel;
 
 layout(set = 0, binding = 3) buffer Chunks {
@@ -31,37 +32,39 @@ layout(set = 0, binding = 4) buffer Occupancy {
     ChunkOccupancy data[];
 } occupancy;
 
-int getVoxel(int i) {
-    int data = voxel.data[i/2];
+uint getVoxel(uint i) {
+    uint data = voxel.data[i/2];
     data >>= 16*(i&1); // shift high bits if odd index
     return data&0xFFFF; // mask lower bits
 }
 
-bool DDAVoxels(Chunk c, Ray ray, out float dist) {
+bool DDAVoxels(Chunk c, Ray ray, out uint voxelIndex) {
     ray.pos -= c.pos * c.size; // bring ray into chunk space
     ray.pos += sign(ray.dir) * 1e-3; // nudge forward
 
-    ivec3 voxel = ivec3(ray.pos);
+    ivec3 voxel = ivec3(floor(ray.pos));
     vec3 step = sign(ray.dir);
 
     // branchless tMax computation
     vec3 tMax = ((vec3(voxel) + step * 0.5 + 0.5) - ray.pos) / ray.dir;
     vec3 tDelta = abs(1.0 / ray.dir);
-    float traveled = 0.0;
-    while (voxel.x >= 0 && voxel.x < c.size.x &&
-            voxel.y >= 0 && voxel.y < c.size.y &&
-            voxel.z >= 0 && voxel.z < c.size.z) {
 
-        int index = c.index + voxel.x + voxel.y * c.size.x + voxel.z * c.size.x * c.size.y;
-        int data = getVoxel(index);
+    while (voxel.x >= 0 && voxel.x < CHUNKWIDTH &&
+            voxel.y >= 0 && voxel.y < CHUNKWIDTH &&
+            voxel.z >= 0 && voxel.z < CHUNKWIDTH) {
+
+        uint index = voxel.x +
+                     voxel.y * CHUNKWIDTH +
+                     voxel.z * CHUNKWIDTH * CHUNKWIDTH;
+        
+        uint data = getVoxel(c.index + index);
         if (isVoxelSolid(data)) {
-            dist = traveled;
+            voxelIndex = uint(index);
             return true;
         }
 
         // find axis with minimum tMax
         float tMin = min(min(tMax.x, tMax.y), tMax.z);
-        traveled = tMin;
         // step voxel along min axis
         ivec3 stepMask = ivec3(
             tMax.x == tMin,
@@ -80,7 +83,7 @@ bool DDAVoxels(Chunk c, Ray ray, out float dist) {
     return false;
 }
 
-bool DDAChunks(Ray ray, out float dist) {
+bool DDAChunks(Ray ray, out uint voxelIndex, out uint chunkIndex) {
     // move ray to the start of chunk bounds
     ivec3 gridSize = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
     Box occupancyVolume = createBox(
@@ -127,18 +130,14 @@ bool DDAChunks(Ray ray, out float dist) {
             chunkPos.x +
             chunkPos.y * gridSize.x +
             chunkPos.z * gridSize.x * gridSize.y;
-
+        
         ChunkOccupancy occ = occupancy.data[occIndex];
-
+        
         if ((occ.flags & CHUNKFLAGS_EMPTY) != 0) {
             Chunk c = chunk.data[occ.index];
-            float vDist;
             if (DDAVoxels(c,
-                Ray(
-                    rayStart + ray.dir * traveled,
-                    ray.dir),
-                vDist)) {
-                    dist = traveled + vDist + occHit.near;
+                Ray(rayStart + ray.dir * traveled, ray.dir), voxelIndex)) {
+                    chunkIndex = occ.index;
                     return true;
                 }
                 
@@ -204,11 +203,17 @@ void main() {
         dir
     );
 
-    float maxDist = imgSize.y * 0.5;
-    float dist;
-    bool hit = DDAChunks(ray, dist);
-    dist = min(dist, maxDist);
-    if (!hit) dist = maxDist;
+    float depth = imageLoad(depthImage, pos).r;
+    ray.pos += ray.dir*depth;
+    vec3 color = vec3(0);
 
-    imageStore(destImage, pos, vec4(dist, 0.0, 0.0, 0.0));
+    uint chunkIndex;
+    uint voxelIndex;
+    bool hit = DDAChunks(ray, voxelIndex, chunkIndex);
+    voxelIndex |= (1u<<31) * int(hit);
+    if (!hit) {
+        chunkIndex = 0;
+        voxelIndex = 0;
+    }
+    imageStore(destImage, pos, uvec4(voxelIndex, chunkIndex, 0u, 0u));
 }

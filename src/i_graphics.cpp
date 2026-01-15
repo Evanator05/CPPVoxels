@@ -10,6 +10,7 @@
 #include "shaders/main.h"
 #include "shaders/depth.h"
 #include "shaders/upscaler.h"
+#include "shaders/indexmap.h"
 
 SDL_GPUDevice* device = nullptr;
 
@@ -117,7 +118,7 @@ void initDisplayTextures() {
     createInfo.num_levels = 1;
     createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
     createInfo.format = SDL_GPU_TEXTUREFORMAT_R32G32_UINT;
-    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ;
+    createInfo.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_TEXTUREUSAGE_SAMPLER;
 
     renderTextures.indexMap() = SDL_CreateGPUTexture(device, &createInfo);
     if (!renderTextures.indexMap()) std::cerr << "Failed to create fullres depth Texture\n";
@@ -179,6 +180,27 @@ void initComputePipeline() {
     computePipelines.upscaler() = SDL_CreateGPUComputePipeline(device, &createInfo);
     if (!computePipelines.upscaler()) std::cerr << "Failed to create upscaler compute pipeline\n";
 
+    // index map
+    createInfo = {};
+    createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    createInfo.code = (const Uint8*)indexmap_spirv;
+    createInfo.code_size = std::size(indexmap_spirv)*sizeof(*indexmap_spirv);
+    createInfo.entrypoint = "main";
+
+    createInfo.num_readwrite_storage_textures = 2;
+    createInfo.num_samplers = 0;
+    createInfo.num_readonly_storage_textures = 0;
+    createInfo.num_readonly_storage_buffers = GPUBUFFERCOUNT;
+    createInfo.num_readwrite_storage_buffers = 0;
+    createInfo.num_uniform_buffers = 0;
+
+    createInfo.threadcount_x = 16;
+    createInfo.threadcount_y = 16;
+    createInfo.threadcount_z = 1;
+
+    computePipelines.indexMap() = SDL_CreateGPUComputePipeline(device, &createInfo);
+    if (!computePipelines.indexMap()) std::cerr << "Failed to create compute pipeline\n";
+
     // main
     createInfo = {};
     createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
@@ -218,8 +240,8 @@ void drawFrame(void) {
         SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
 
         Uint32 localSize = 16;
-        Uint32 groupsX = (winw+localSize-1)/localSize;
-        Uint32 groupsY = (winh+localSize-1)/localSize;
+        Uint32 groupsX = ((winw/2)+localSize-1)/localSize;
+        Uint32 groupsY = ((winh/2)+localSize-1)/localSize;
         SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
         SDL_EndGPUComputePass(cpass);
     }
@@ -247,6 +269,27 @@ void drawFrame(void) {
         SDL_EndGPUComputePass(cpass);
     }
     // full res voxel index/visible voxel pass + maybe some other per voxel information
+    {
+        SDL_GPUStorageTextureReadWriteBinding rw[2]{};
+        rw[0].texture = renderTextures.indexMap();
+        rw[0].mip_level = 0;
+        rw[0].layer = 0;
+        rw[1].texture = renderTextures.fullResDepth();
+        rw[1].mip_level = 0;
+        rw[1].layer = 0;
+
+        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw, 2, nullptr, 0);
+        SDL_BindGPUComputePipeline(cpass, computePipelines.indexMap());
+
+        // bind buffers
+        SDL_BindGPUComputeStorageBuffers(cpass, 0, gpubuffers_getVoxelBuffers(), GPUBUFFERCOUNT);
+
+        Uint32 localSize = 16;
+        Uint32 groupsX = (winw+localSize-1)/localSize;
+        Uint32 groupsY = (winh+localSize-1)/localSize;
+        SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
+        SDL_EndGPUComputePass(cpass);
+    }
 
     // visible voxel lighting pass
 
@@ -256,7 +299,7 @@ void drawFrame(void) {
         rw[0].texture = renderTextures.display();
         rw[0].mip_level = 0;
         rw[0].layer = 0;
-        rw[1].texture = renderTextures.fullResDepth();
+        rw[1].texture = renderTextures.indexMap();
         rw[1].mip_level = 0;
         rw[1].layer = 0;
 
@@ -272,6 +315,8 @@ void drawFrame(void) {
         SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
         SDL_EndGPUComputePass(cpass);
     }
+
+
     SDL_GPUTexture *swapTex = nullptr;
     Uint32 sw = 0, sh = 0;
     SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapTex, &sw, &sh);
