@@ -65,7 +65,8 @@ typedef struct _Ray {
 typedef struct _RayResult {
     glm::vec3 pos;
     glm::vec3 normal;
-    Voxel voxel; // if the ray is hit will be stored as the VOXELSOLID bit in the voxel 
+    Voxel voxel; // if the ray is hit will be stored as the VOXELSOLID bit in the voxel
+    bool hit;
 } RayResult;
 
 #define CHUNKOCCUPANCY_OCCUPIED 1
@@ -113,3 +114,8 @@ void voxel_chunkFree(uint32_t index);
  * @brief Calculates the chunk occupancy hashmap for quick lookup use
  */
 void voxel_calculateChunkOccupancy(void);
+
+
+RayResult voxel_raycast_world(Ray ray);
+RayResult voxel_raycast_chunk(Chunk chunk, Ray ray);
+RayResult voxel_raycast_chunks(Ray ray);

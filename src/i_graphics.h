@@ -24,3 +24,5 @@ void initComputePipeline(void);
 // draws a frame
 void drawFrame(void);
 
+// resizes the display textures
+void graphics_resize(void);

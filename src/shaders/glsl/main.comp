@@ -82,7 +82,7 @@ void main() {
     uint chunkIndex = indexMap.g;
 
     bool hit = (voxelIndex & (1u << 31)) != 0;
-    voxelIndex &= ~(1u << 31); // remove hit bit from voxelindex
+    voxelIndex &= ~(1u << 31); // remove hit bit from voxel index
 
     vec3 color = ray.dir;
     color = vec3(0.05); // get sky color

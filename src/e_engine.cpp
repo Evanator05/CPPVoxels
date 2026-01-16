@@ -440,21 +440,21 @@ void move_camera(double deltaTime) {
         glm::ivec3 wp = glm::floor(worldInfo.cameraPos + forward);
 
         glm::ivec3 chunkspace = {
-            floor_div(wp.x, 64),
-            floor_div(wp.y, 64),
-            floor_div(wp.z, 64)
+            floor_div(wp.x, CHUNKWIDTH),
+            floor_div(wp.y, CHUNKWIDTH),
+            floor_div(wp.z, CHUNKWIDTH)
         };
 
         glm::ivec3 cspace = {
-            floor_mod(wp.x, 64),
-            floor_mod(wp.y, 64),
-            floor_mod(wp.z, 64)
+            floor_mod(wp.x, CHUNKWIDTH),
+            floor_mod(wp.y, CHUNKWIDTH),
+            floor_mod(wp.z, CHUNKWIDTH)
         };
 
         // Bounds check chunk map
-        if (chunkspace.x < 0 || chunkspace.x >= 64 ||
-            chunkspace.y < 0 || chunkspace.y >= 64 ||
-            chunkspace.z < 0 || chunkspace.z >= 64)
+        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x >= chunkOccupancyMapData.max.x + 1 ||
+            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y >= chunkOccupancyMapData.max.y + 1 ||
+            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z >= chunkOccupancyMapData.max.z + 1)
             return;
 
         glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
@@ -465,22 +465,19 @@ void move_camera(double deltaTime) {
 
         auto occ = chunkOccupancyMapData.data[chunkMapIndex];
 
-        // Chunk not present?
+        // Chunk not present
         if (occ.flags == 0)
             return;
 
         uint32_t voxelIndex =
             chunkData[occ.index].data.index +
             cspace.x +
-            cspace.y * 64 +
-            cspace.z * 64 * 64;
-
-        printf("World: %u %u %u, Chunk: %u %u %u\n", chunkspace.x, chunkspace.y, chunkspace.z, cspace.x, cspace.y, cspace.z);
+            cspace.y * CHUNKWIDTH +
+            cspace.z * CHUNKWIDTH * CHUNKWIDTH;
+        
         voxelData[voxelIndex].data = 0;
         gpubuffers_upload();
-        
     }
-    
 }
 
 int fps = 0;
