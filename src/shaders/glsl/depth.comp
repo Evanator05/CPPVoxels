@@ -81,90 +81,62 @@ bool DDAVoxels(Chunk c, Ray ray, out float dist) {
 }
 
 bool DDAChunks(Ray ray, out float dist) {
-    // move ray to the start of chunk bounds
     ivec3 gridSize = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
-    Box occupancyVolume = createBox(
-        sizes.occupancyMin * CHUNKWIDTH,
-        gridSize * CHUNKWIDTH
-    );
-
+    Box occupancyVolume = createBox(sizes.occupancyMin * CHUNKWIDTH, gridSize * CHUNKWIDTH);
     Intersection occHit = intersectAABB(ray, occupancyVolume);
-    if (!occHit.hit)
-        return false;
+    if (!occHit.hit) return false;
 
-    // start actual dda
-    // safe step
     vec3 step = sign(ray.dir);
-
-    float eps = 1e-4;
-    // move the ray to the chunk bounds + push it in to avoid floating point error
-    vec3 rayStart = ray.pos + ray.dir * occHit.near + eps * step;
-    
     const float CHUNK_SIZE = float(CHUNKWIDTH);
-    
-    // local occupancy coords
-    ivec3 chunkPos = ivec3(rayStart / CHUNK_SIZE) - sizes.occupancyMin;
+    float eps = 1e-6;
+
+    // move ray to start inside volume
+    vec3 rayStart = ray.pos + ray.dir * occHit.near + eps * step;
+
+    // compute world-space chunk coordinates
+    ivec3 chunkPos = ivec3(floor(rayStart / CHUNK_SIZE));
+
+    // compute nextBoundary per-axis for DDA
+    vec3 nextBoundary;
+    for (int i = 0; i < 3; i++) {
+        if (step[i] > 0.0)
+            nextBoundary[i] = (float(chunkPos[i]) + 1.0) * CHUNK_SIZE;
+        else
+            nextBoundary[i] = float(chunkPos[i]) * CHUNK_SIZE;
+    }
+
+    vec3 tMax = (nextBoundary - rayStart) / ray.dir;
     vec3 tDelta = abs(CHUNK_SIZE / ray.dir);
 
-    // next world boundary
-    vec3 nextBoundary = (vec3(chunkPos) +
-        vec3(step.x > 0.0 ? 1.0 : 0.0,
-             step.y > 0.0 ? 1.0 : 0.0,
-             step.z > 0.0 ? 1.0 : 0.0)) * CHUNK_SIZE;
-
-    vec3 tMax = vec3(
-        ray.dir.x != 0.0 ? (nextBoundary.x - rayStart.x) / ray.dir.x : 1e30,
-        ray.dir.y != 0.0 ? (nextBoundary.y - rayStart.y) / ray.dir.y : 1e30,
-        ray.dir.z != 0.0 ? (nextBoundary.z - rayStart.z) / ray.dir.z : 1e30
-    );
     float traveled = 0.0;
 
-    while (chunkPos.x >= 0 && chunkPos.x < gridSize.x &&
-            chunkPos.y >= 0 && chunkPos.y < gridSize.y &&
-            chunkPos.z >= 0 && chunkPos.z < gridSize.z) {
+    while (true) {
+        ivec3 gridPos = chunkPos - sizes.occupancyMin;
+        if (any(lessThan(gridPos, ivec3(0))) || any(greaterThanEqual(gridPos, gridSize))) break;
 
-        int occIndex =
-            chunkPos.x +
-            chunkPos.y * gridSize.x +
-            chunkPos.z * gridSize.x * gridSize.y;
-
+        int occIndex = gridPos.x + gridPos.y * gridSize.x + gridPos.z * gridSize.x * gridSize.y;
         ChunkOccupancy occ = occupancy.data[occIndex];
 
         if ((occ.flags & CHUNKFLAGS_EMPTY) != 0) {
             Chunk c = chunk.data[occ.index];
             float vDist;
-            if (DDAVoxels(c,
-                Ray(
-                    rayStart + ray.dir * traveled,
-                    ray.dir),
-                vDist)) {
-                    dist = traveled + vDist + occHit.near;
-                    return true;
-                }
-                
+            if (DDAVoxels(c, Ray(rayStart + ray.dir * traveled, ray.dir), vDist)) {
+                dist = traveled + vDist + occHit.near;
+                return true;
+            }
         }
 
         float tMin = min(min(tMax.x, tMax.y), tMax.z);
-
-        ivec3 stepMask = ivec3(
-            tMax.x == tMin,
-            tMax.y == tMin,
-            tMax.z == tMin
-        );
+        ivec3 stepMask = ivec3(tMax.x == tMin, tMax.y == tMin, tMax.z == tMin);
 
         chunkPos += stepMask * ivec3(step);
-        //chunkWorld += stepMask * ivec3(step);
-
         traveled = tMin;
-
-        tMax += vec3(
-            stepMask.x != 0 ? tDelta.x : 0.0,
-            stepMask.y != 0 ? tDelta.y : 0.0,
-            stepMask.z != 0 ? tDelta.z : 0.0
-        );
+        tMax += vec3(stepMask) * tDelta;
     }
+
     return false;
 }
+
 
 vec2 getUV(ivec2 pos, ivec2 size) {
     float aspectRatio = float(size.x)/size.y;

@@ -1,0 +1,58 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "voxel.glsl"
+#include "ray.glsl"
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer WorldInfo {
+    vec4 posTime;
+    vec2 cameraRot;
+} worldInfo;
+
+layout(set = 0, binding = 1) buffer Sizes {
+    ivec3 occupancyMin;
+    ivec3 occupancyMax;
+    uint voxels;
+    uint chunks;
+} sizes;
+
+layout(set = 0, binding = 2) buffer Voxels {
+    uint data[];
+} voxel;
+
+layout(set = 0, binding = 3) buffer Chunks {
+    Chunk data[];
+} chunk;
+
+layout(set = 0, binding = 4) buffer Occupancy {
+    ChunkOccupancy data[];
+} occupancy;
+
+layout(set = 0, binding = 5) writeonly buffer Visibility {
+    uint data[];
+} visibility;
+
+void main()
+{
+    uint tid = gl_GlobalInvocationID.x;
+
+    // total number of uints to clear
+    ivec3 size = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
+    uint total = uint(size.x) * uint(size.y) * uint(size.z);
+
+    // base index for this thread
+    uint base = tid * 32u;
+
+    // early out if this thread starts past the end
+    if (base >= total)
+        return;
+
+    // clear up to 32 uints
+    for (uint i = 0; i < 32u; ++i) {
+        uint idx = base + i;
+        if (idx < total)
+            visibility.data[idx] = 0u;
+    }
+}

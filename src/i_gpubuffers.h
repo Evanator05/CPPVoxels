@@ -15,6 +15,10 @@ typedef struct _BufferSizes {
     int chunksSize;
 } BufferSizes;
 
+typedef struct _ChunkVisiblility {
+    uint32_t data[128]; 
+} ChunkVisiblility;
+
 void gpubuffers_init(void);
 
 void gpubuffers_cleanup(void);
@@ -46,3 +50,4 @@ void gpubuffers_createSizesBuffer(void);
 void gpubuffers_createVoxelBuffer(void);
 void gpubuffers_createChunkBuffer(void);
 void gpubuffers_createOccupancyBuffer(void);
+void gpubuffers_createVisiblilityBuffer(void);

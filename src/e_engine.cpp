@@ -14,6 +14,8 @@
 
 #include "math.h"
 
+#include "i_loader.h"
+
 bool running = true;
 
 void gen_test_chunks(void) {
@@ -329,6 +331,125 @@ void gen_caves(void) {
     }
 }
 
+Chunk* find_chunk_for_voxel(int wx, int wy, int wz)
+{
+    for (uint32_t i = 0; i < chunkData.size(); i++) {
+        const auto& chunk = chunkData[i];
+        glm::ivec3 cp = chunk.pos; // chunk world position in chunks
+        int startX = cp.x * CHUNKWIDTH;
+        int startY = cp.y * CHUNKWIDTH;
+        int startZ = cp.z * CHUNKWIDTH;
+        int endX   = startX + CHUNKWIDTH;
+        int endY   = startY + CHUNKWIDTH;
+        int endZ   = startZ + CHUNKWIDTH;
+
+        if (wx >= startX && wx < endX &&
+            wy >= startY && wy < endY &&
+            wz >= startZ && wz < endZ)
+        {
+            return &chunkData[i];
+        }
+    }
+    return nullptr;
+}
+
+
+#include <unordered_map>
+
+// helper functions for chunk math
+inline int lfloor_div(int a, int b) {
+    return (a >= 0) ? (a / b) : ((a - b + 1) / b);
+}
+inline int lfloor_mod(int a, int b) { int m = a % b; return (m < 0) ? (m + b) : m; }
+
+struct ivec3_hash {
+    size_t operator()(const glm::ivec3& v) const {
+        return std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1) ^ (std::hash<int>()(v.z) << 2);
+    }
+};
+
+void load_vox_file(const char* filename)
+{
+    std::unordered_map<glm::ivec3, uint32_t, ivec3_hash> chunkMap;
+
+    const ogt_vox_scene* scene;
+    if (!loader_loadvoxfile(filename, scene)) return;
+
+    for (uint32_t inst_idx = 0; inst_idx < scene->num_instances; inst_idx++)
+    {
+        const ogt_vox_instance* instance = &scene->instances[inst_idx];
+        const ogt_vox_model* model = scene->models[instance->model_index];
+        const ogt_vox_transform *transform = &scene->instances[inst_idx].transform;
+        // Compute pivot (center of model)
+        int pivotX = (model->size_x - 1) / 2;
+        int pivotY = (model->size_y - 1) / 2;
+        int pivotZ = (model->size_z - 1) / 2;
+
+        uint32_t voxel_index = 0;
+        for (uint32_t z = 0; z < model->size_z; z++) {
+            for (uint32_t y = 0; y < model->size_y; y++) {
+                for (uint32_t x = 0; x < model->size_x; x++, voxel_index++) {
+
+                    uint8_t color_idx = model->voxel_data[voxel_index];
+                    if (color_idx == 0) continue;
+
+                    // Local voxel position relative to pivot
+                    int lx = x - pivotX;
+                    int ly = y - pivotY;
+                    int lz = z - pivotZ;
+
+                    // Apply MagicaVoxel rotation/axes (integer math)
+                    int mx = instance->transform.m00*lx + instance->transform.m10*ly + instance->transform.m20*lz + instance->transform.m30;
+                    int my = instance->transform.m01*lx + instance->transform.m11*ly + instance->transform.m21*lz + instance->transform.m31;
+                    int mz = instance->transform.m02*lx + instance->transform.m12*ly + instance->transform.m22*lz + instance->transform.m32;
+
+                    // Swap axes to engine space
+                    int wx = mx;
+                    int wy = mz; // MagicaVoxel Z -> engine Y
+                    int wz = my; // MagicaVoxel Y -> engine Z
+
+                    // Compute chunk coordinates using floor division (handles negatives correctly)
+                    int cx = (wx >= 0) ? wx / CHUNKWIDTH : ((wx + 1) / CHUNKWIDTH) - 1;
+                    int cy = (wy >= 0) ? wy / CHUNKWIDTH : ((wy + 1) / CHUNKWIDTH) - 1;
+                    int cz = (wz >= 0) ? wz / CHUNKWIDTH : ((wz + 1) / CHUNKWIDTH) - 1;
+                    glm::ivec3 chunkPos(cx, cy, cz);
+
+                    // Find or allocate chunk
+                    uint32_t chunkIndex;
+                    auto it = chunkMap.find(chunkPos);
+                    if (it != chunkMap.end()) chunkIndex = it->second;
+                    else {
+                        chunkIndex = voxel_chunkAllocate(chunkPos);
+                        chunkMap[chunkPos] = chunkIndex;
+                    }
+
+                    Chunk* c = &chunkData[chunkIndex];
+
+                    // Compute voxel position **inside the chunk**
+                    int lx_chunk = wx - cx * CHUNKWIDTH;
+                    int ly_chunk = wy - cy * CHUNKWIDTH;
+                    int lz_chunk = wz - cz * CHUNKWIDTH;
+
+                    uint32_t voxelIndexInChunk = lx_chunk + ly_chunk * CHUNKWIDTH + lz_chunk * CHUNKWIDTH * CHUNKWIDTH;
+                    uint32_t startIndex = c->data.index;
+
+                    // Pack voxel as solid + RGB555
+                    const ogt_vox_rgba& col = scene->palette.color[color_idx];
+                    uint16_t d =
+                        VOXELSOLID |
+                        ((col.r >> 3) & 0x1F) |
+                        (((col.g >> 3) & 0x1F) << 5) |
+                        (((col.b >> 3) & 0x1F) << 10);
+
+                    voxelData[startIndex + voxelIndexInChunk].data = d;
+                }
+            }
+        }
+    }
+
+    ogt_vox_destroy_scene(scene);
+}
+
 void engine_init() {
     video_init();
     graphics_init();
@@ -336,15 +457,17 @@ void engine_init() {
     voxel_init();
     
     // generate world
-    for (int x = 0; x < 4; x++) {
-        for (int z = 0; z < 4; z++) {
-            for (int y = 0; y < 4; y++) {
-                voxel_chunkAllocate(glm::ivec3(x, y, z));
-            }
-        }
-    }
+    // for (int x = 0; x < 4; x++) {
+    //     for (int z = 0; z < 4; z++) {
+    //         for (int y = 0; y < 4; y++) {
+    //             voxel_chunkAllocate(glm::ivec3(x-2, y-2, z-2));
+    //         }
+    //     }
+    // }
 
-    gen_caves();
+    // gen_caves();
+
+    load_vox_file("castle.vox");
 
     voxel_calculateChunkOccupancy();
     gpubuffers_init();

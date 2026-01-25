@@ -32,10 +32,32 @@ layout(set = 0, binding = 4) buffer Occupancy {
     ChunkOccupancy data[];
 } occupancy;
 
+layout(set = 0, binding = 5) buffer Visibility {
+    uint data[];
+} visibility;
+
 uint getVoxel(uint i) {
-    uint data = voxel.data[i/2];
+    uint data = voxel.data[i >> 1];
     data >>= 16*(i&1); // shift high bits if odd index
     return data&0xFFFF; // mask lower bits
+}
+
+bool getVisiblility(uint i) {
+    uint page = visibility.data[i >> 5];
+    uint mask = 1u << (i & 31u);
+    return (page&mask) != 0u;
+}
+
+void setVisiblility(uint i) {
+    uint mask = 1u << (i & 31u);
+    uint pageIndex = i >> 5;
+    atomicOr(visibility.data[pageIndex], mask);
+}
+
+void clearVisiblility(uint i) {
+    uint mask = 1u << (i & 31u);
+    uint pageIndex = i >> 5;
+    atomicAnd(visibility.data[pageIndex], ~mask);
 }
 
 bool DDAVoxels(Chunk c, Ray ray, out uint voxelIndex) {
@@ -84,67 +106,50 @@ bool DDAVoxels(Chunk c, Ray ray, out uint voxelIndex) {
 }
 
 bool DDAChunks(Ray ray, out uint voxelIndex, out uint chunkIndex) {
-    // move ray to the start of chunk bounds
     ivec3 gridSize = sizes.occupancyMax - sizes.occupancyMin + ivec3(1);
-    Box occupancyVolume = createBox(
-        sizes.occupancyMin * CHUNKWIDTH,
-        gridSize * CHUNKWIDTH
-    );
-
+    Box occupancyVolume = createBox(sizes.occupancyMin * CHUNKWIDTH, gridSize * CHUNKWIDTH);
     Intersection occHit = intersectAABB(ray, occupancyVolume);
-    if (!occHit.hit)
-        return false;
+    if (!occHit.hit) return false;
 
-    // start actual dda
-    // safe step
     vec3 step = sign(ray.dir);
-
-    float eps = 1e-4;
-    // move the ray to the chunk bounds + push it in to avoid floating point error
-    vec3 rayStart = ray.pos + ray.dir * occHit.near + eps * step;
-    
     const float CHUNK_SIZE = float(CHUNKWIDTH);
-    
-    // local occupancy coords
-    ivec3 chunkPos = ivec3(rayStart / CHUNK_SIZE) - sizes.occupancyMin;
+    float eps = 1e-6;
+
+    vec3 rayStart = ray.pos + ray.dir * occHit.near + eps * step;
+
+    // world-space chunk coordinates
+    ivec3 chunkPos = ivec3(floor(rayStart / CHUNK_SIZE));
+
+    // compute nextBoundary per-axis depending on step
+    vec3 nextBoundary;
+    nextBoundary.x = step.x > 0.0 ? float(chunkPos.x + 1) * CHUNK_SIZE : float(chunkPos.x) * CHUNK_SIZE;
+    nextBoundary.y = step.y > 0.0 ? float(chunkPos.y + 1) * CHUNK_SIZE : float(chunkPos.y) * CHUNK_SIZE;
+    nextBoundary.z = step.z > 0.0 ? float(chunkPos.z + 1) * CHUNK_SIZE : float(chunkPos.z) * CHUNK_SIZE;
+
+    vec3 tMax = (nextBoundary - rayStart) / ray.dir;
     vec3 tDelta = abs(CHUNK_SIZE / ray.dir);
 
-    // next world boundary
-    vec3 nextBoundary = (vec3(chunkPos) +
-        vec3(step.x > 0.0 ? 1.0 : 0.0,
-             step.y > 0.0 ? 1.0 : 0.0,
-             step.z > 0.0 ? 1.0 : 0.0)) * CHUNK_SIZE;
-
-    vec3 tMax = vec3(
-        ray.dir.x != 0.0 ? (nextBoundary.x - rayStart.x) / ray.dir.x : 1e30,
-        ray.dir.y != 0.0 ? (nextBoundary.y - rayStart.y) / ray.dir.y : 1e30,
-        ray.dir.z != 0.0 ? (nextBoundary.z - rayStart.z) / ray.dir.z : 1e30
-    );
     float traveled = 0.0;
 
-    while (chunkPos.x >= 0 && chunkPos.x < gridSize.x &&
-            chunkPos.y >= 0 && chunkPos.y < gridSize.y &&
-            chunkPos.z >= 0 && chunkPos.z < gridSize.z) {
+    while (true) {
+        ivec3 gridPos = chunkPos - sizes.occupancyMin;
+        if (gridPos.x < 0 || gridPos.x >= gridSize.x ||
+            gridPos.y < 0 || gridPos.y >= gridSize.y ||
+            gridPos.z < 0 || gridPos.z >= gridSize.z)
+            break;
 
-        int occIndex =
-            chunkPos.x +
-            chunkPos.y * gridSize.x +
-            chunkPos.z * gridSize.x * gridSize.y;
-        
+        int occIndex = gridPos.x + gridPos.y * gridSize.x + gridPos.z * gridSize.x * gridSize.y;
         ChunkOccupancy occ = occupancy.data[occIndex];
-        
+
         if ((occ.flags & CHUNKFLAGS_EMPTY) != 0) {
             Chunk c = chunk.data[occ.index];
-            if (DDAVoxels(c,
-                Ray(rayStart + ray.dir * traveled, ray.dir), voxelIndex)) {
-                    chunkIndex = occ.index;
-                    return true;
-                }
-                
+            if (DDAVoxels(c, Ray(rayStart + ray.dir * traveled, ray.dir), voxelIndex)) {
+                chunkIndex = occ.index;
+                return true;
+            }
         }
 
         float tMin = min(min(tMax.x, tMax.y), tMax.z);
-
         ivec3 stepMask = ivec3(
             tMax.x == tMin,
             tMax.y == tMin,
@@ -152,18 +157,18 @@ bool DDAChunks(Ray ray, out uint voxelIndex, out uint chunkIndex) {
         );
 
         chunkPos += stepMask * ivec3(step);
-        //chunkWorld += stepMask * ivec3(step);
-
         traveled = tMin;
-
         tMax += vec3(
             stepMask.x != 0 ? tDelta.x : 0.0,
             stepMask.y != 0 ? tDelta.y : 0.0,
             stepMask.z != 0 ? tDelta.z : 0.0
         );
     }
+
     return false;
 }
+
+
 
 vec2 getUV(ivec2 pos, ivec2 size) {
     float aspectRatio = float(size.x)/size.y;
@@ -210,7 +215,7 @@ void main() {
     uint chunkIndex;
     uint voxelIndex;
     bool hit = DDAChunks(ray, voxelIndex, chunkIndex);
-    voxelIndex |= (1u<<31) * int(hit);
+    voxelIndex |= (1<<31) * int(hit);
     if (!hit) {
         chunkIndex = 0;
         voxelIndex = 0;

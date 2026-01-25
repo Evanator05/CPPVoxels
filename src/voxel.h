@@ -44,7 +44,7 @@ typedef struct _Model {
     glm::mat4x4 transform;
     AABB aabb;
     VoxelRegion data;
-} Model;
+} VoxelModel;
 
 typedef struct _ChunkOccupancy {
     uint32_t index;

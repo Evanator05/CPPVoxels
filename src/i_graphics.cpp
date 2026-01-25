@@ -240,8 +240,6 @@ void drawFrame(void) {
     {
         SDL_GPUStorageTextureReadWriteBinding rw{};
         rw.texture = renderTextures.halfResDepth();
-        rw.mip_level = 0;
-        rw.layer = 0;
 
         SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, &rw, 1, nullptr, 0);
         SDL_BindGPUComputePipeline(cpass, computePipelines.halfResDepth());
@@ -255,18 +253,12 @@ void drawFrame(void) {
         SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
         SDL_EndGPUComputePass(cpass);
     }
-    
 
     // upscale to full res primary ray starting depths
     {
         SDL_GPUStorageTextureReadWriteBinding upscaleBindings[2]{};
         upscaleBindings[0].texture = renderTextures.halfResDepth();
-        upscaleBindings[0].mip_level = 0;
-        upscaleBindings[0].layer = 0;
-
         upscaleBindings[1].texture = renderTextures.fullResDepth();
-        upscaleBindings[1].mip_level = 0;
-        upscaleBindings[1].layer = 0;
 
         SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, upscaleBindings, 2, nullptr, 0);
         
@@ -278,15 +270,17 @@ void drawFrame(void) {
         SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
         SDL_EndGPUComputePass(cpass);
     }
+
+    // clear visiblility buffer
+    {
+        
+    }
+
     // full res voxel index/visible voxel pass + maybe some other per voxel information
     {
         SDL_GPUStorageTextureReadWriteBinding rw[2]{};
         rw[0].texture = renderTextures.indexMap();
-        rw[0].mip_level = 0;
-        rw[0].layer = 0;
         rw[1].texture = renderTextures.fullResDepth();
-        rw[1].mip_level = 0;
-        rw[1].layer = 0;
 
         SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw, 2, nullptr, 0);
         SDL_BindGPUComputePipeline(cpass, computePipelines.indexMap());
@@ -301,22 +295,25 @@ void drawFrame(void) {
         SDL_EndGPUComputePass(cpass);
     }
 
-    // render voxel models / update visible voxels
+    // render voxel models
     {
 
     }
 
-    // visible voxel lighting pass
+    // render particles
+    {
 
+    }
+    
+    // visible voxel lighting pass
+    {
+
+    }
     // main draw pass / combine color with lighting pass
     {
         SDL_GPUStorageTextureReadWriteBinding rw[2]{};
         rw[0].texture = renderTextures.display();
-        rw[0].mip_level = 0;
-        rw[0].layer = 0;
         rw[1].texture = renderTextures.indexMap();
-        rw[1].mip_level = 0;
-        rw[1].layer = 0;
 
         SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw, 2, nullptr, 0);
         SDL_BindGPUComputePipeline(cpass, computePipelines.display());
@@ -352,7 +349,6 @@ void drawFrame(void) {
         color.texture = swapTex;
         color.load_op  = SDL_GPU_LOADOP_LOAD;
         color.store_op = SDL_GPU_STOREOP_STORE;
-        color.mip_level   = 0;
 
         ImGui::Render();
         ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), cmd);

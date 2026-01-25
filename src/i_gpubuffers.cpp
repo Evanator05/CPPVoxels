@@ -18,6 +18,8 @@ SDL_GPUTransferBuffer *chunkTransferBuffer = nullptr;
 SDL_GPUBuffer *chunkOccupancyBuffer = nullptr;
 SDL_GPUTransferBuffer *chunkOccupancyTransferBuffer = nullptr;
 
+SDL_GPUBuffer *chunkVisiblilityBuffer = nullptr;
+
 SDL_GPUCommandBuffer *gpubuffers_cmd = nullptr;
 SDL_GPUCopyPass *gpubuffers_cpy = nullptr;
 
@@ -30,6 +32,7 @@ void gpubuffers_createBuffers() {
     gpubuffers_createVoxelBuffer();
     gpubuffers_createChunkBuffer();
     gpubuffers_createOccupancyBuffer();
+    gpubuffers_createVisiblilityBuffer();
 }
 
 void gpubuffers_cleanup() {
@@ -39,11 +42,13 @@ void gpubuffers_cleanup() {
     SDL_ReleaseGPUBuffer(device, voxelBuffer);
     SDL_ReleaseGPUBuffer(device, chunkBuffer);
     SDL_ReleaseGPUBuffer(device, chunkOccupancyBuffer);
+    SDL_ReleaseGPUBuffer(device, chunkVisiblilityBuffer);
 
     SDL_ReleaseGPUTransferBuffer(device, sizesTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, voxelTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, chunkTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, chunkOccupancyTransferBuffer);
+
 }
 
 void gpubuffers_upload() {
@@ -235,6 +240,21 @@ void gpubuffers_createOccupancyBuffer() {
     gpubuffers_createBufferFromVector(chunkOccupancyMapData.data, chunkOccupancyBuffer, chunkOccupancyTransferBuffer);
 }
 
+void gpubuffers_createVisiblilityBuffer() {
+    SDL_GPUDevice *device = graphics_getDevice();
+
+    // if buffers already exist release them
+    if (chunkVisiblilityBuffer) SDL_ReleaseGPUBuffer(device, chunkVisiblilityBuffer);
+
+    // create buffer
+    SDL_GPUBufferCreateInfo bci{};
+    bci.size = sizeof(ChunkVisiblility)*chunkOccupancyMapData.data.size();
+    bci.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    chunkVisiblilityBuffer = SDL_CreateGPUBuffer(device, &bci);
+
+    if (!chunkVisiblilityBuffer) std::cerr << "Failed to create buffer\n";
+}
+
 SDL_GPUBuffer** gpubuffers_getVoxelBuffers() {
     static SDL_GPUBuffer* buffers[GPUBUFFERCOUNT];
     buffers[0] = worldInfoBuffer;
@@ -242,5 +262,6 @@ SDL_GPUBuffer** gpubuffers_getVoxelBuffers() {
     buffers[2] = voxelBuffer;
     buffers[3] = chunkBuffer;
     buffers[4] = chunkOccupancyBuffer;
+    buffers[5] = chunkVisiblilityBuffer;
     return buffers;
 }
