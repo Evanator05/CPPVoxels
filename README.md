@@ -69,7 +69,7 @@ The renderer is built on:
 - [ ] Experimental global illumination techniques
 
 ### Voxel Assets
-- [ ] Voxel model support (e.g. `.vox`)
+- [x] Voxel model support (e.g. `.vox`)
 - [ ] Instanced voxel models
 - [ ] Static and dynamic voxel meshes
 - [ ] Import/export tooling
