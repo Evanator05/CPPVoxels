@@ -56,22 +56,20 @@ The renderer is built on:
 - [x] Primary ray casting
 - [x] Half resolution depth pre-pass
 - [ ] Sparse voxel chunks
-- [ ] Dirty only data uploading
-- [ ] Advanced traversal optimizations
-- [ ] Temporal reuse / caching strategies
-- [ ] Level-of-detail (LOD) for distant voxel regions
+- [x] Dirty only data uploading
+- [ ] Temporal reuse / caching
+- [ ] LOD for distant voxel regions
 
 ### Lighting & Shading
 - [ ] Per-voxel lighting model
 - [ ] Directional light support
 - [ ] Voxel-based ambient occlusion
 - [ ] Emissive voxels
-- [ ] Experimental global illumination techniques
+- [ ] Global illumination
 
 ### Voxel Assets
 - [x] Voxel model support (e.g. `.vox`)
 - [ ] Instanced voxel models
-- [ ] Static and dynamic voxel meshes
 - [ ] Import/export tooling
 
 ### Physics & Interaction
