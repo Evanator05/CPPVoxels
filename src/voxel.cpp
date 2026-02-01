@@ -78,6 +78,97 @@ void voxel_calculateChunkOccupancy() {
     }
 }
 
+inline int floor_div(int a, int b) {
+    return (a >= 0) ? a / b : ((a - (b - 1)) / b);
+}
+
+inline int floor_mod(int a, int b) {
+    int r = a % b;
+    return (r < 0) ? r + b : r;
+}
+
+void voxel_delete(glm::ivec3 pos) {
+    glm::ivec3 wp = pos;
+
+        
+
+        glm::ivec3 chunkspace = {
+            floor_div(wp.x, CHUNKWIDTH),
+            floor_div(wp.y, CHUNKWIDTH),
+            floor_div(wp.z, CHUNKWIDTH)
+        };
+
+        glm::ivec3 cspace = {
+            floor_mod(wp.x, CHUNKWIDTH),
+            floor_mod(wp.y, CHUNKWIDTH),
+            floor_mod(wp.z, CHUNKWIDTH)
+        };
+
+        // Bounds check chunk map
+        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x > chunkOccupancyMapData.max.x ||
+            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y > chunkOccupancyMapData.max.y ||
+            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z > chunkOccupancyMapData.max.z)
+            return;
+
+        glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
+        glm::ivec3 chunkOffset = chunkspace - chunkOccupancyMapData.min;
+
+        uint32_t chunkMapIndex =
+            chunkOffset.x +
+            chunkOffset.y * csize.x +
+            chunkOffset.z * csize.x * csize.y;
+
+        auto occ = chunkOccupancyMapData.data[chunkMapIndex];
+
+        // Chunk not present
+        if (occ.flags == 0)
+            return;
+
+        uint32_t voxelIndex =
+            chunkData[occ.index].data.index +
+            cspace.x +
+            cspace.y * CHUNKWIDTH +
+            cspace.z * CHUNKWIDTH * CHUNKWIDTH;
+        
+        Voxel zero{};
+        voxelData.set(&zero, voxelIndex);
+}
+
+void voxel_delete_sphere(glm::ivec3 center, float radius)
+{
+    int r = (int)std::ceil(radius);
+    float r2 = radius * radius;
+
+    for (int z = -r; z <= r; ++z)
+    {
+        float z2 = (float)(z * z);
+        if (z2 > r2) continue;
+
+        for (int y = -r; y <= r; ++y)
+        {
+            float yz2 = z2 + (float)(y * y);
+            if (yz2 > r2) continue;
+
+            int xMax = (int)std::floor(std::sqrt(r2 - yz2));
+
+            for (int x = -xMax; x <= xMax; ++x)
+            {
+                voxel_delete(center + glm::ivec3(x, y, z));
+            }
+        }
+    }
+}
+
+void voxel_delete_box(glm::ivec3 pos, glm::ivec3 size)
+{
+    for (int z = 0; z < size.z; ++z)
+    for (int y = 0; y < size.y; ++y)
+    for (int x = 0; x < size.x; ++x)
+    {
+        voxel_delete(pos + glm::ivec3(x, y, z));
+    }
+}
+
 // RayResult voxel_raycast_world(Ray ray) {
     
 // }

@@ -120,3 +120,7 @@ void voxel_calculateChunkOccupancy(void);
 RayResult voxel_raycast_world(Ray ray);
 RayResult voxel_raycast_chunk(Chunk chunk, Ray ray);
 RayResult voxel_raycast_chunks(Ray ray);
+
+void voxel_delete(glm::ivec3 pos);
+void voxel_delete_sphere(glm::ivec3 center, float radius);
+void voxel_delete_box(glm::ivec3 pos, glm::ivec3 size);

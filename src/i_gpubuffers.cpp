@@ -153,14 +153,11 @@ void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buf
 // }
 
 template <typename T>
-void gpubuffers_uploadBufferFromArena(
-    Arena<T> &data,
-    SDL_GPUBuffer *&buffer,
-    SDL_GPUTransferBuffer *&transferBuffer)
-{
+void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
     if (data.size() == 0) return;
 
     SDL_GPUDevice *device = graphics_getDevice();
+    data.merge_dirty();
     cArenaArray *dirty = data.dirty();
 
     void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);

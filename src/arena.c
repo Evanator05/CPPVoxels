@@ -249,63 +249,58 @@ void cArena_set(cArena *cArena, const uint8_t *element, size_t index) {
     cArenaSpan newSpan = { index, 1 };
     cArenaArray *dirty = &cArena->dirty;
 
-    if (dirty->count == 0) {
-        cArena_array_add(dirty, (const uint8_t *)&newSpan);
+    cArena_array_add(dirty, (const uint8_t *)&newSpan);
+    return;
+}
+
+static int cArena_span_cmp(const void *a, const void *b) {
+    const cArenaSpan *sa = (const cArenaSpan *)a;
+    const cArenaSpan *sb = (const cArenaSpan *)b;
+
+    if (sa->start < sb->start) return -1;
+    if (sa->start > sb->start) return  1;
+    return 0;
+}
+
+void cArena_merge_dirty(cArena *arena) {
+    cArenaArray *dirty = &arena->dirty;
+
+    if (dirty->count < 2)
         return;
-    }
 
-    size_t i = 0;
+    // 1. Sort spans by start
+    qsort(dirty->data,
+          dirty->count,
+          sizeof(cArenaSpan),
+          cArena_span_cmp);
 
-    // Find insertion point
-    for (; i < dirty->count; ++i) {
-        cArenaSpan *span =
-            (cArenaSpan *)cArena_array_slot_unsafe(dirty, i);
+    // 2. Merge in-place
+    size_t write = 0;
 
-        if (newSpan.start < span->start)
-            break;
-
-        size_t span_end = span->start + span->size;
-
-        // Already covered
-        if (newSpan.start >= span->start &&
-            newSpan.start < span_end)
-            return;
-
-        // Merge right
-        if (newSpan.start == span_end) {
-            span->size += 1;
-
-            // Merge with next span
-            if (i + 1 < dirty->count) {
-                cArenaSpan *next =
-                    (cArenaSpan *)cArena_array_slot_unsafe(dirty, i + 1);
-
-                if (span->start + span->size == next->start) {
-                    span->size += next->size;
-                    cArena_array_remove(dirty, i + 1);
-                }
-            }
-            return;
-        }
-    }
-
-    // Insert new span
-    cArena_array_insert(dirty,
-        (const uint8_t *)&newSpan,
-        i);
-
-    // Merge left if adjacent
-    if (i > 0) {
-        cArenaSpan *left =
-            (cArenaSpan *)cArena_array_slot_unsafe(dirty, i - 1);
+    for (size_t read = 1; read < dirty->count; ++read) {
         cArenaSpan *curr =
-            (cArenaSpan *)cArena_array_slot_unsafe(dirty, i);
+            (cArenaSpan *)cArena_array_slot_unsafe(dirty, write);
+        cArenaSpan *next =
+            (cArenaSpan *)cArena_array_slot_unsafe(dirty, read);
 
-        if (left->start + left->size == curr->start) {
-            left->size += curr->size;
-            cArena_array_remove(dirty, i);
+        size_t curr_end = curr->start + curr->size;
+        size_t next_end = next->start + next->size;
+
+        // Overlapping or adjacent
+        if (next->start <= curr_end) {
+            if (next_end > curr_end)
+                curr->size = next_end - curr->start;
+        } else {
+            // Advance write cursor
+            ++write;
+            if (write != read) {
+                *(cArenaSpan *)cArena_array_slot_unsafe(dirty, write) = *next;
+            }
         }
     }
+
+    // 3. Truncate array
+    dirty->count = write + 1;
 }
 
 void cArena_clean(cArena *cArena) {

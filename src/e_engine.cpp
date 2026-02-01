@@ -459,18 +459,22 @@ void engine_init() {
     graphics_init();
     gui_init();
     voxel_init();
-    
-    worldInfo.cameraPos.y = 200;
-    load_vox_file("castle.vox");
 
-    // for (int x = 0; x < 4; x++) {
-    //     for (int z = 0; z < 4; z++) {
-    //         for (int y = 0; y < 4; y++) {
-    //             voxel_chunkAllocate(glm::ivec3(x, y, z));
-    //         }
-    //     }
-    // }
-    // gen_caves();
+    #define VOX
+    #ifdef VOX
+    worldInfo.cameraPos.y = 200;
+    load_vox_file("minecraft.vox");
+    #endif
+    #ifdef NVOX
+    for (int x = 0; x < 4; x++) {
+        for (int z = 0; z < 4; z++) {
+            for (int y = 0; y < 4; y++) {
+                voxel_chunkAllocate(glm::ivec3(x, y, z));
+            }
+        }
+    }
+    gen_caves();
+    #endif
 
     voxelData.dirty_all();
 
@@ -565,48 +569,9 @@ void move_camera(double deltaTime) {
 
     // block breaking
     if (input_isheld(BREAK_BLOCK)) {
-        glm::ivec3 wp = glm::floor(worldInfo.cameraPos + forward);
+        glm::ivec3 wp = glm::floor(worldInfo.cameraPos + (forward*16.0f));
 
-        glm::ivec3 chunkspace = {
-            floor_div(wp.x, CHUNKWIDTH),
-            floor_div(wp.y, CHUNKWIDTH),
-            floor_div(wp.z, CHUNKWIDTH)
-        };
-
-        glm::ivec3 cspace = {
-            floor_mod(wp.x, CHUNKWIDTH),
-            floor_mod(wp.y, CHUNKWIDTH),
-            floor_mod(wp.z, CHUNKWIDTH)
-        };
-
-        // Bounds check chunk map
-        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x > chunkOccupancyMapData.max.x ||
-            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y > chunkOccupancyMapData.max.y ||
-            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z > chunkOccupancyMapData.max.z)
-            return;
-
-        glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
-        glm::ivec3 chunkOffset = chunkspace - chunkOccupancyMapData.min;
-
-        uint32_t chunkMapIndex =
-            chunkOffset.x +
-            chunkOffset.y * csize.x +
-            chunkOffset.z * csize.x * csize.y;
-
-        auto occ = chunkOccupancyMapData.data[chunkMapIndex];
-
-        // Chunk not present
-        if (occ.flags == 0)
-            return;
-
-        uint32_t voxelIndex =
-            chunkData[occ.index].data.index +
-            cspace.x +
-            cspace.y * CHUNKWIDTH +
-            cspace.z * CHUNKWIDTH * CHUNKWIDTH;
-        
-        Voxel zero{};
-        voxelData.set(&zero, voxelIndex);
+        voxel_delete_sphere(wp, 16);
 
         gpubuffers_upload();
     }

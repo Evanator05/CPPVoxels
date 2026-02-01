@@ -15,6 +15,8 @@ class Arena {
 
         void set(const T *element, size_t index);
 
+        void merge_dirty();
+
         cArenaArray *dirty();
         void dirty_all();
         void clean();
@@ -58,6 +60,11 @@ void Arena<T>::free(cArenaAllocation allocation) {
 template <typename T>
 void Arena<T>::set(const T *element, size_t index) {
     cArena_set(&c_Arena, (const uint8_t *)element, index);
+}
+
+template <typename T>
+void Arena<T>::merge_dirty() {
+    cArena_merge_dirty(&c_Arena);
 }
 
 template <typename T>

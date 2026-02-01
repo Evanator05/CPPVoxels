@@ -59,6 +59,8 @@ cArenaAllocation cArena_allocate(cArena *cArena, size_t count);
 void cArena_free(cArena *cArena, cArenaAllocation allocation);
 
 void cArena_set(cArena *cArena, const uint8_t *element, size_t index);
+
+void cArena_merge_dirty(cArena *cArena);
 void cArena_clean(cArena *cArena);
 
 void cArena_dirty_all(cArena *cArena);
