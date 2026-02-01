@@ -1,14 +1,13 @@
 #include "voxel.h"
-#include <vector>
 
-Allocator<Voxel> voxelData;
+Arena<Voxel> voxelData = Arena<Voxel>(1);
 Allocator<Chunk> chunkData;
 //Allocator<Model> modelData;
 
 ChunkOccupancyMap chunkOccupancyMapData{};
 
 void voxel_init(void) {
-    voxelData.allocateEmpty(CHUNKWIDTH*CHUNKWIDTH*CHUNKWIDTH*27); // preallocating 27 chunks of memory
+    voxelData.resize(CHUNKWIDTH*CHUNKWIDTH*CHUNKWIDTH*27); // preallocating 3000 chunks of memory
     chunkData.allocateEmpty(1);
     //modelData.allocateEmpty(1);
 }
@@ -16,15 +15,15 @@ void voxel_init(void) {
 VoxelRegion voxel_dataAllocate(glm::ivec3 size) {
     VoxelRegion vr{};
     vr.size = size;
-    vr.index = voxelData.allocateData(size.x*size.y*size.z).index;
+    vr.index = voxelData.allocate(size.x*size.y*size.z).start;
     return vr;
 }
 
 void voxel_dataFree(VoxelRegion data) {
-    Allocation a{};
-    a.index = data.index;
+    cArenaSpan a{};
+    a.start = data.index;
     a.size = data.size.x*data.size.y*data.size.z;
-    voxelData.freeData(a);
+    voxelData.free(a);
 }
 
 uint32_t voxel_chunkAllocate(glm::ivec3 pos) {
@@ -79,55 +78,55 @@ void voxel_calculateChunkOccupancy() {
     }
 }
 
-RayResult voxel_raycast_world(Ray ray) {
+// RayResult voxel_raycast_world(Ray ray) {
     
-}
+// }
 
-RayResult voxel_raycast_chunk(Chunk chunk, Ray ray) {
-    RayResult result{};
+// RayResult voxel_raycast_chunk(Chunk chunk, Ray ray) {
+//     RayResult result{};
 
-    // move ray into chunk space
-    ray.pos -= chunk.pos*CHUNKWIDTH;
-    glm::ivec3 step = glm::sign(ray.dir);
+//     // move ray into chunk space
+//     ray.pos -= chunk.pos*CHUNKWIDTH;
+//     glm::ivec3 step = glm::sign(ray.dir);
 
-    ray.pos += glm::vec3(step) * 1e-3f;
+//     ray.pos += glm::vec3(step) * 1e-3f;
 
-    glm::ivec3 voxelPos = glm::floor(ray.pos);
+//     glm::ivec3 voxelPos = glm::floor(ray.pos);
 
-    glm::vec3 tMax = ((glm::vec3(voxelPos) + glm::vec3(step) * 0.5f + 0.5f) - ray.pos) / ray.dir;
-    glm::vec3 tDelta = glm::abs(1.0f/ray.dir);
+//     glm::vec3 tMax = ((glm::vec3(voxelPos) + glm::vec3(step) * 0.5f + 0.5f) - ray.pos) / ray.dir;
+//     glm::vec3 tDelta = glm::abs(1.0f/ray.dir);
 
-    while (voxelPos.x >= 0 && voxelPos.x < CHUNKWIDTH && voxelPos.y >= 0 && voxelPos.y < CHUNKWIDTH && voxelPos.z >= 0 && voxelPos.z < CHUNKWIDTH) {
-        uint32_t index = voxelPos.x +
-                         voxelPos.y * CHUNKWIDTH +
-                         voxelPos.z * CHUNKWIDTH * CHUNKWIDTH;
-        Voxel data = voxelData[chunk.data.index + index];
+//     while (voxelPos.x >= 0 && voxelPos.x < CHUNKWIDTH && voxelPos.y >= 0 && voxelPos.y < CHUNKWIDTH && voxelPos.z >= 0 && voxelPos.z < CHUNKWIDTH) {
+//         uint32_t index = voxelPos.x +
+//                          voxelPos.y * CHUNKWIDTH +
+//                          voxelPos.z * CHUNKWIDTH * CHUNKWIDTH;
+//         Voxel data = voxelData[chunk.data.index + index];
 
-        float tMin = glm::min(glm::min(tMax.x, tMax.y), tMax.z);
-        glm::ivec3 stepMask = glm::ivec3(
-            tMax.x == tMin,
-            tMax.y == tMin,
-            tMax.z == tMin
-        );
+//         float tMin = glm::min(glm::min(tMax.x, tMax.y), tMax.z);
+//         glm::ivec3 stepMask = glm::ivec3(
+//             tMax.x == tMin,
+//             tMax.y == tMin,
+//             tMax.z == tMin
+//         );
 
-        if (data.data & VOXELSOLID) {
-            result.hit = true;
-            result.pos = glm::vec3(ray.pos + ray.dir*tMin);
-            result.voxel = data;
-            result.normal = glm::vec3(-stepMask*step);
-            return result;
-        }
+//         if (data.data & VOXELSOLID) {
+//             result.hit = true;
+//             result.pos = glm::vec3(ray.pos + ray.dir*tMin);
+//             result.voxel = data;
+//             result.normal = glm::vec3(-stepMask*step);
+//             return result;
+//         }
 
-        // step the ray
-        voxelPos += step*stepMask;
-        tMax += glm::vec3(
-            stepMask.x != 0 ? tDelta.x : 0.0,
-            stepMask.y != 0 ? tDelta.y : 0.0,
-            stepMask.z != 0 ? tDelta.z : 0.0
-        );
-    };
+//         // step the ray
+//         voxelPos += step*stepMask;
+//         tMax += glm::vec3(
+//             stepMask.x != 0 ? tDelta.x : 0.0,
+//             stepMask.y != 0 ? tDelta.y : 0.0,
+//             stepMask.z != 0 ? tDelta.z : 0.0
+//         );
+//     };
 
-    result.hit = false;
-    return result;
-}
+//     result.hit = false;
+//     return result;
+// }
 

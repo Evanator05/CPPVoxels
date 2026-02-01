@@ -23,6 +23,7 @@ SDL_GPUBuffer *chunkVisiblilityBuffer = nullptr;
 SDL_GPUCommandBuffer *gpubuffers_cmd = nullptr;
 SDL_GPUCopyPass *gpubuffers_cpy = nullptr;
 
+
 void gpubuffers_init() {
     gpubuffers_createBuffers();
 }
@@ -48,13 +49,12 @@ void gpubuffers_cleanup() {
     SDL_ReleaseGPUTransferBuffer(device, voxelTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, chunkTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, chunkOccupancyTransferBuffer);
-
 }
 
 void gpubuffers_upload() {
     gpubuffers_startUpload();
     gpubuffers_uploadSizesBuffer();
-    gpubuffers_uploadBufferFromAllocator(voxelData, voxelBuffer, voxelTransferBuffer);
+    gpubuffers_uploadBufferFromArena(voxelData, voxelBuffer, voxelTransferBuffer);
     gpubuffers_uploadBufferFromAllocator(chunkData, chunkBuffer, chunkTransferBuffer);
     gpubuffers_uploadBufferFromVector(chunkOccupancyMapData.data, chunkOccupancyBuffer, chunkOccupancyTransferBuffer);
     gpubuffers_finishUpload();
@@ -125,6 +125,73 @@ void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buf
     SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
 }
 
+// template <typename T>
+// void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
+//     if (data.size() == 0) return;
+
+//     SDL_GPUDevice *device = graphics_getDevice();
+
+//     // copy voxel data into transfer buffer
+//     void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+//     T *voxelPtr = (T*)ptr;
+//     memcpy(voxelPtr, data.data(), data.size()*sizeof(T));
+//     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+//     // create transfer buffer location
+//     SDL_GPUTransferBufferLocation tbl{};
+//     tbl.transfer_buffer = transferBuffer;
+//     tbl.offset = 0;
+
+//     // create transfer buffer region
+//     SDL_GPUBufferRegion br{};
+//     br.buffer = buffer;
+//     br.offset = 0;
+//     br.size = data.size()*sizeof(T);
+
+//     // upload to the buffer
+//     SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
+// }
+
+template <typename T>
+void gpubuffers_uploadBufferFromArena(
+    Arena<T> &data,
+    SDL_GPUBuffer *&buffer,
+    SDL_GPUTransferBuffer *&transferBuffer)
+{
+    if (data.size() == 0) return;
+
+    SDL_GPUDevice *device = graphics_getDevice();
+    cArenaArray *dirty = data.dirty();
+
+    void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+    uint8_t *dst = (uint8_t *)ptr;
+    uint8_t *src = (uint8_t *)data.data();
+
+    for (size_t i = 0; i < dirty->count; i++) {
+        cArenaSpan *span =
+            (cArenaSpan *)cArena_array_at(dirty, i);
+
+        size_t byteOffset = span->start * sizeof(T);
+        size_t byteSize   = span->size  * sizeof(T);
+
+        memcpy(dst + byteOffset, src + byteOffset, byteSize);
+
+        SDL_GPUTransferBufferLocation tbl{};
+        tbl.transfer_buffer = transferBuffer;
+        tbl.offset = byteOffset;
+
+        SDL_GPUBufferRegion br{};
+        br.buffer = buffer;
+        br.offset = byteOffset;
+        br.size   = byteSize;
+
+        SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
+    }
+
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    data.clean();
+}
+
 
 template <typename T>
 void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
@@ -153,6 +220,31 @@ void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&bu
 
 template <typename T>
 void gpubuffers_createBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
+    SDL_GPUDevice *device = graphics_getDevice();
+
+    // if buffers already exist release them
+    if (buffer) SDL_ReleaseGPUBuffer(device, buffer);
+    if (transferBuffer) SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+
+    // create buffer
+    SDL_GPUBufferCreateInfo bci{};
+    bci.size = data.size()*sizeof(T);
+    bci.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    buffer = SDL_CreateGPUBuffer(device, &bci);
+
+    if (!buffer) std::cerr << "Failed to create buffer\n";
+
+    // create transfer buffer
+    SDL_GPUTransferBufferCreateInfo tbci{};
+    tbci.size = data.size()*sizeof(T);
+    tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    transferBuffer = SDL_CreateGPUTransferBuffer(device, &tbci);
+    
+    if (!transferBuffer) std::cerr << "Failed to create transfer buffer\n";
+}
+
+template <typename T>
+void gpubuffers_createBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
     SDL_GPUDevice *device = graphics_getDevice();
 
     // if buffers already exist release them
@@ -229,7 +321,7 @@ void gpubuffers_uploadSizesBuffer() {
 }
 
 void gpubuffers_createVoxelBuffer() {
-    gpubuffers_createBufferFromAllocator(voxelData, voxelBuffer, voxelTransferBuffer);
+    gpubuffers_createBufferFromArena(voxelData, voxelBuffer, voxelTransferBuffer);
 }
 
 void gpubuffers_createChunkBuffer() {

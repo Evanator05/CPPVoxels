@@ -1,5 +1,7 @@
 #pragma once
 
+#include "arena.hpp"
+
 #include <vector>
 #include "SDL3/SDL_gpu.h"
 #include "glm/vec3.hpp"
@@ -39,10 +41,16 @@ template <typename T>
 void gpubuffers_createBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
 template <typename T>
+void gpubuffers_createBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
+
+template <typename T>
 void gpubuffers_uploadBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
 template <typename T>
 void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
+
+template <typename T>
+void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer);
 
 void gpubuffers_uploadSizesBuffer(void);
 

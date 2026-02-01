@@ -4,6 +4,7 @@
 #include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
 #include <vector>
+#include "arena.hpp"
 
 #include "allocator.h"
 
@@ -71,7 +72,7 @@ typedef struct _RayResult {
 
 #define CHUNKOCCUPANCY_OCCUPIED 1
 
-extern Allocator<Voxel> voxelData;
+extern Arena<Voxel> voxelData;
 extern Allocator<Chunk> chunkData;
 extern ChunkOccupancyMap chunkOccupancyMapData;
 //extern Allocator<Model> modelData;

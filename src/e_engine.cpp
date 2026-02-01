@@ -40,10 +40,10 @@ void gen_test_chunks(void) {
             int terrainHeight = (int)(120 + h1 + h2 + h3);
 
             if (gx%16 < 2 || gz%16 < 2 || gy%16 < 2) {
-                voxelData[offset+j].data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
+                voxelData[offset+j]->data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
             } else {
                 number = rand()%32;
-                voxelData[offset+j].data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
+                voxelData[offset+j]->data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
             }
         }
     }
@@ -141,7 +141,7 @@ void gen_chunks_sdf_ball_carved(void) {
             for (int y = 0; y < 64; y++) {
                 for (int x = 0; x < 64; x++) {
                     float dC = slice_curr_ptr[x][y];
-                    if (dC >= 0.0f) { voxelData[offset + x + y*64 + z*64*64].data = 0; continue; }
+                    if (dC >= 0.0f) { voxelData[offset + x + y*64 + z*64*64]->data = 0; continue; }
 
                     // 6-face neighbors from cached slices
                     float dXP = (x<63) ? slice_curr_ptr[x+1][y] : full_sdf((x+chunk.pos.x*64+1)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
@@ -153,7 +153,7 @@ void gen_chunks_sdf_ball_carved(void) {
 
                     // surface check
                     if (dXP<0 && dXN<0 && dYP<0 && dYN<0 && dZP<0 && dZN<0) {
-                        voxelData[offset + x + y*64 + z*64*64].data = VOXELSOLID;
+                        voxelData[offset + x + y*64 + z*64*64]->data = VOXELSOLID;
                         continue;
                     }
 
@@ -174,7 +174,7 @@ void gen_chunks_sdf_ball_carved(void) {
                     G = G<0?0:(G>31?31:G);
                     B = B<0?0:(B>31?31:B);
 
-                    voxelData[offset + x + y*64 + z*64*64].data = R | (G<<5) | (B<<10) | VOXELSOLID;
+                    voxelData[offset + x + y*64 + z*64*64]->data = R | (G<<5) | (B<<10) | VOXELSOLID;
                 }
             }
 
@@ -257,7 +257,7 @@ void gen_caves(void) {
                     float gz = z + chunk.pos.z*64;
                     float dC = slice_curr_ptr[x][y];
                     if (dC < AIR_THRESHOLD) {
-                        voxelData[offset + x + y*64 + z*64*64].data = 0;
+                        voxelData[offset + x + y*64 + z*64*64]->data = 0;
                         continue;
                     }
 
@@ -270,7 +270,7 @@ void gen_caves(void) {
                     float dZN = (z>0)?slice_below[x][y]:calc_noise(x+chunk.pos.x*64,y+chunk.pos.y*64,z+chunk.pos.z*64-1);
 
                     if (dXP< AIR_THRESHOLD && dXN< AIR_THRESHOLD && dYP< AIR_THRESHOLD && dYN< AIR_THRESHOLD && dZP< AIR_THRESHOLD && dZN< AIR_THRESHOLD) {
-                        voxelData[offset + x + y*64 + z*64*64].data = VOXELSOLID;
+                        voxelData[offset + x + y*64 + z*64*64]->data = VOXELSOLID;
                         continue;
                     }
 
@@ -308,7 +308,7 @@ void gen_caves(void) {
                         G = (G + highlight > 31) ? 31 : G + highlight;
                     }
 
-                    voxelData[offset + x + y*64 + z*64*64].data = R | (G<<5) | (B<<10) | VOXELSOLID;
+                    voxelData[offset + x + y*64 + z*64*64]->data = R | (G<<5) | (B<<10) | VOXELSOLID;
                 }
             }
 
@@ -360,7 +360,11 @@ Chunk* find_chunk_for_voxel(int wx, int wy, int wz)
 inline int lfloor_div(int a, int b) {
     return (a >= 0) ? (a / b) : ((a - b + 1) / b);
 }
-inline int lfloor_mod(int a, int b) { int m = a % b; return (m < 0) ? (m + b) : m; }
+inline int lfloor_mod(int a, int b)
+{
+    int r = a % b;
+    return (r < 0) ? r + b : r;
+}
 
 struct ivec3_hash {
     size_t operator()(const glm::ivec3& v) const {
@@ -368,12 +372,12 @@ struct ivec3_hash {
     }
 };
 
-void load_vox_file(const char* filename)
-{
-    std::unordered_map<glm::ivec3, uint32_t, ivec3_hash> chunkMap;
+void load_vox_file(const char *filename) {
 
     const ogt_vox_scene* scene;
     if (!loader_loadvoxfile(filename, scene)) return;
+
+    std::unordered_map<glm::ivec3, uint32_t, ivec3_hash> chunkMap;
 
     for (uint32_t inst_idx = 0; inst_idx < scene->num_instances; inst_idx++)
     {
@@ -381,9 +385,9 @@ void load_vox_file(const char* filename)
         const ogt_vox_model* model = scene->models[instance->model_index];
         const ogt_vox_transform *transform = &scene->instances[inst_idx].transform;
         // Compute pivot (center of model)
-        int pivotX = (model->size_x - 1) / 2;
-        int pivotY = (model->size_y - 1) / 2;
-        int pivotZ = (model->size_z - 1) / 2;
+        int pivotX = lfloor_div(model->size_x, 2);
+        int pivotY = lfloor_div(model->size_y, 2);
+        int pivotZ = lfloor_div(model->size_z, 2);
 
         uint32_t voxel_index = 0;
         for (uint32_t z = 0; z < model->size_z; z++) {
@@ -399,9 +403,9 @@ void load_vox_file(const char* filename)
                     int lz = z - pivotZ;
 
                     // Apply MagicaVoxel rotation/axes (integer math)
-                    int mx = instance->transform.m00*lx + instance->transform.m10*ly + instance->transform.m20*lz + instance->transform.m30;
-                    int my = instance->transform.m01*lx + instance->transform.m11*ly + instance->transform.m21*lz + instance->transform.m31;
-                    int mz = instance->transform.m02*lx + instance->transform.m12*ly + instance->transform.m22*lz + instance->transform.m32;
+                    int mx = transform->m00*lx + transform->m10*ly + transform->m20*lz + transform->m30;
+                    int my = transform->m01*lx + transform->m11*ly + transform->m21*lz + transform->m31;
+                    int mz = transform->m02*lx + transform->m12*ly + transform->m22*lz + transform->m32;
 
                     // Swap axes to engine space
                     int wx = mx;
@@ -409,9 +413,9 @@ void load_vox_file(const char* filename)
                     int wz = my; // MagicaVoxel Y -> engine Z
 
                     // Compute chunk coordinates using floor division (handles negatives correctly)
-                    int cx = (wx >= 0) ? wx / CHUNKWIDTH : ((wx + 1) / CHUNKWIDTH) - 1;
-                    int cy = (wy >= 0) ? wy / CHUNKWIDTH : ((wy + 1) / CHUNKWIDTH) - 1;
-                    int cz = (wz >= 0) ? wz / CHUNKWIDTH : ((wz + 1) / CHUNKWIDTH) - 1;
+                    int cx = lfloor_div(wx, CHUNKWIDTH);
+                    int cy = lfloor_div(wy, CHUNKWIDTH);
+                    int cz = lfloor_div(wz, CHUNKWIDTH);
                     glm::ivec3 chunkPos(cx, cy, cz);
 
                     // Find or allocate chunk
@@ -426,9 +430,9 @@ void load_vox_file(const char* filename)
                     Chunk* c = &chunkData[chunkIndex];
 
                     // Compute voxel position **inside the chunk**
-                    int lx_chunk = wx - cx * CHUNKWIDTH;
-                    int ly_chunk = wy - cy * CHUNKWIDTH;
-                    int lz_chunk = wz - cz * CHUNKWIDTH;
+                    int lx_chunk = lfloor_mod(wx, CHUNKWIDTH);
+                    int ly_chunk = lfloor_mod(wy, CHUNKWIDTH);
+                    int lz_chunk = lfloor_mod(wz, CHUNKWIDTH);
 
                     uint32_t voxelIndexInChunk = lx_chunk + ly_chunk * CHUNKWIDTH + lz_chunk * CHUNKWIDTH * CHUNKWIDTH;
                     uint32_t startIndex = c->data.index;
@@ -437,11 +441,11 @@ void load_vox_file(const char* filename)
                     const ogt_vox_rgba& col = scene->palette.color[color_idx];
                     uint16_t d =
                         VOXELSOLID |
-                        ((col.r >> 3) & 0x1F) |
-                        (((col.g >> 3) & 0x1F) << 5) |
-                        (((col.b >> 3) & 0x1F) << 10);
+                        ((col.r >> 3) & VOXELRED) |
+                        (((col.g >> 3) & VOXELRED) << 5) |
+                        (((col.b >> 3) & VOXELRED) << 10);
 
-                    voxelData[startIndex + voxelIndexInChunk].data = d;
+                    voxelData[startIndex + voxelIndexInChunk]->data = d;
                 }
             }
         }
@@ -456,18 +460,19 @@ void engine_init() {
     gui_init();
     voxel_init();
     
-    // generate world
+    worldInfo.cameraPos.y = 200;
+    load_vox_file("castle.vox");
+
     // for (int x = 0; x < 4; x++) {
     //     for (int z = 0; z < 4; z++) {
     //         for (int y = 0; y < 4; y++) {
-    //             voxel_chunkAllocate(glm::ivec3(x-2, y-2, z-2));
+    //             voxel_chunkAllocate(glm::ivec3(x, y, z));
     //         }
     //     }
     // }
-
     // gen_caves();
 
-    load_vox_file("castle.vox");
+    voxelData.dirty_all();
 
     voxel_calculateChunkOccupancy();
     gpubuffers_init();
@@ -575,16 +580,18 @@ void move_camera(double deltaTime) {
         };
 
         // Bounds check chunk map
-        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x >= chunkOccupancyMapData.max.x + 1 ||
-            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y >= chunkOccupancyMapData.max.y + 1 ||
-            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z >= chunkOccupancyMapData.max.z + 1)
+        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x > chunkOccupancyMapData.max.x ||
+            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y > chunkOccupancyMapData.max.y ||
+            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z > chunkOccupancyMapData.max.z)
             return;
 
         glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
+        glm::ivec3 chunkOffset = chunkspace - chunkOccupancyMapData.min;
+
         uint32_t chunkMapIndex =
-            chunkspace.x +
-            chunkspace.y * csize.x+
-            chunkspace.z * csize.x * csize.y;
+            chunkOffset.x +
+            chunkOffset.y * csize.x +
+            chunkOffset.z * csize.x * csize.y;
 
         auto occ = chunkOccupancyMapData.data[chunkMapIndex];
 
@@ -598,7 +605,9 @@ void move_camera(double deltaTime) {
             cspace.y * CHUNKWIDTH +
             cspace.z * CHUNKWIDTH * CHUNKWIDTH;
         
-        voxelData[voxelIndex].data = 0;
+        Voxel zero{};
+        voxelData.set(&zero, voxelIndex);
+
         gpubuffers_upload();
     }
 }
@@ -607,8 +616,8 @@ int fps = 0;
 void draw_fps_debug(float fps, float frameTimeMs)
 {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(150, 130), ImVec2(150, 130));
-    ImGui::Begin("Performance", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(150, 250), ImVec2(150, 250));
+    ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
 
     // Color-coded FPS
     ImVec4 fpsColor;
@@ -619,13 +628,18 @@ void draw_fps_debug(float fps, float frameTimeMs)
     ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
     ImGui::Text("Frame Time: %02.2f ms", frameTimeMs);
 
-    // Optional: simple FPS histograph
     static float fpsHistory[120] = {0};
     static int idx = 0;
     fpsHistory[idx] = frameTimeMs;
     idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
 
     ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 30.0f, ImVec2(130, 50));
+
+    ImGui::Text("X: %02.2f", worldInfo.cameraPos.x);
+    ImGui::Text("Y: %02.2f", worldInfo.cameraPos.y);
+    ImGui::Text("Z: %02.2f", worldInfo.cameraPos.z);
+
+    ImGui::Text("Chunks: %u", chunkData.size());
 
     ImGui::End();
 }
