@@ -157,19 +157,19 @@ void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SD
     if (data.size() == 0) return;
 
     SDL_GPUDevice *device = graphics_getDevice();
-    data.merge_dirty();
-    cArenaArray *dirty = data.dirty();
+    
+    size_t count;
+    cArenaSpan *spans = data.get_dirty_spans(&count);
 
     void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
     uint8_t *dst = (uint8_t *)ptr;
     uint8_t *src = (uint8_t *)data.data();
 
-    for (size_t i = 0; i < dirty->count; i++) {
-        cArenaSpan *span =
-            (cArenaSpan *)cArena_array_at(dirty, i);
-
-        size_t byteOffset = span->start * sizeof(T);
-        size_t byteSize   = span->size  * sizeof(T);
+    for (size_t i = 0; i < count; i++) {
+        cArenaSpan span = spans[i];
+        
+        size_t byteOffset = span.start * sizeof(T);
+        size_t byteSize   = span.size  * sizeof(T);
 
         memcpy(dst + byteOffset, src + byteOffset, byteSize);
 
@@ -186,6 +186,8 @@ void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SD
     }
 
     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+    free(spans);
     data.clean();
 }
 

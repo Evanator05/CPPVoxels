@@ -1,6 +1,6 @@
 #include "voxel.h"
 
-Arena<Voxel> voxelData = Arena<Voxel>(1);
+Arena<Voxel> voxelData = Arena<Voxel>(1, CHUNKWIDTH*CHUNKWIDTH*CHUNKWIDTH);
 Allocator<Chunk> chunkData;
 //Allocator<Model> modelData;
 
@@ -87,77 +87,190 @@ inline int floor_mod(int a, int b) {
     return (r < 0) ? r + b : r;
 }
 
-void voxel_delete(glm::ivec3 pos) {
-    glm::ivec3 wp = pos;
+inline void voxel_delete(glm::ivec3 pos)
+{
+    // ---- Cache immutable globals locally (helps optimizer) ----
+    const glm::ivec3 minC = chunkOccupancyMapData.min;
+    const glm::ivec3 maxC = chunkOccupancyMapData.max;
+    const glm::ivec3 csize = maxC - minC + glm::ivec3(1);
 
-        
+    // ---- Fast chunk / local coords ----
+    const int wx = pos.x;
+    const int wy = pos.y;
+    const int wz = pos.z;
 
-        glm::ivec3 chunkspace = {
-            floor_div(wp.x, CHUNKWIDTH),
-            floor_div(wp.y, CHUNKWIDTH),
-            floor_div(wp.z, CHUNKWIDTH)
-        };
+    const int cx = floor_div(wx, CHUNKWIDTH);
+    const int cy = floor_div(wy, CHUNKWIDTH);
+    const int cz = floor_div(wz, CHUNKWIDTH);
 
-        glm::ivec3 cspace = {
-            floor_mod(wp.x, CHUNKWIDTH),
-            floor_mod(wp.y, CHUNKWIDTH),
-            floor_mod(wp.z, CHUNKWIDTH)
-        };
+    // Bounds check
+    if ((unsigned)(cx - minC.x) >= (unsigned)csize.x ||
+        (unsigned)(cy - minC.y) >= (unsigned)csize.y ||
+        (unsigned)(cz - minC.z) >= (unsigned)csize.z)
+        return;
 
-        // Bounds check chunk map
-        if (chunkspace.x < chunkOccupancyMapData.min.x || chunkspace.x > chunkOccupancyMapData.max.x ||
-            chunkspace.y < chunkOccupancyMapData.min.y || chunkspace.y > chunkOccupancyMapData.max.y ||
-            chunkspace.z < chunkOccupancyMapData.min.z || chunkspace.z > chunkOccupancyMapData.max.z)
-            return;
+    const int lx = floor_mod(wx, CHUNKWIDTH);
+    const int ly = floor_mod(wy, CHUNKWIDTH);
+    const int lz = floor_mod(wz, CHUNKWIDTH);
 
-        glm::ivec3 csize = chunkOccupancyMapData.max - chunkOccupancyMapData.min + glm::ivec3(1);
-        glm::ivec3 chunkOffset = chunkspace - chunkOccupancyMapData.min;
+    // ---- Chunk map index ----
+    const int ox = cx - minC.x;
+    const int oy = cy - minC.y;
+    const int oz = cz - minC.z;
 
-        uint32_t chunkMapIndex =
-            chunkOffset.x +
-            chunkOffset.y * csize.x +
-            chunkOffset.z * csize.x * csize.y;
+    const uint32_t chunkMapIndex =
+        ox +
+        oy * csize.x +
+        oz * csize.x * csize.y;
 
-        auto occ = chunkOccupancyMapData.data[chunkMapIndex];
+    const auto& occ = chunkOccupancyMapData.data[chunkMapIndex];
+    if (occ.flags == 0)
+        return;
 
-        // Chunk not present
-        if (occ.flags == 0)
-            return;
+    // ---- Final voxel index ----
+    const uint32_t voxelIndex =
+        chunkData[occ.index].data.index +
+        lx +
+        ly * CHUNKWIDTH +
+        lz * CHUNKWIDTH * CHUNKWIDTH;
 
-        uint32_t voxelIndex =
-            chunkData[occ.index].data.index +
-            cspace.x +
-            cspace.y * CHUNKWIDTH +
-            cspace.z * CHUNKWIDTH * CHUNKWIDTH;
-        
-        Voxel zero{};
-        voxelData.set(&zero, voxelIndex);
+    Voxel zero{};
+    voxelData.set(&zero, voxelIndex);
 }
 
+#include "string.h"
 void voxel_delete_sphere(glm::ivec3 center, float radius)
 {
-    int r = (int)std::ceil(radius);
-    float r2 = radius * radius;
+    const int r  = (int)std::ceil(radius);
+    const float r2 = radius * radius;
 
-    for (int z = -r; z <= r; ++z)
+    // Chunk bounds
+    const int cminx = (center.x - r) >> 6;
+    const int cminy = (center.y - r) >> 6;
+    const int cminz = (center.z - r) >> 6;
+
+    const int cmaxx = (center.x + r) >> 6;
+    const int cmaxy = (center.y + r) >> 6;
+    const int cmaxz = (center.z + r) >> 6;
+
+    const glm::ivec3 mapMin = chunkOccupancyMapData.min;
+    const glm::ivec3 mapMax = chunkOccupancyMapData.max;
+    const glm::ivec3 csize  = mapMax - mapMin + glm::ivec3(1);
+
+    cArena *arena = &voxelData.c_Arena; // alias once
+
+    // ------------------------------------------------------------
+    // Iterate chunks
+    // ------------------------------------------------------------
+    for (int cz = cminz; cz <= cmaxz; ++cz)
+    for (int cy = cminy; cy <= cmaxy; ++cy)
+    for (int cx = cminx; cx <= cmaxx; ++cx)
     {
-        float z2 = (float)(z * z);
-        if (z2 > r2) continue;
+        // Chunk bounds check (once)
+        const int ox = cx - mapMin.x;
+        const int oy = cy - mapMin.y;
+        const int oz = cz - mapMin.z;
 
-        for (int y = -r; y <= r; ++y)
+        if ((unsigned)ox >= (unsigned)csize.x ||
+            (unsigned)oy >= (unsigned)csize.y ||
+            (unsigned)oz >= (unsigned)csize.z)
+            continue;
+
+        const uint32_t chunkMapIndex =
+            ox + oy * csize.x + oz * csize.x * csize.y;
+
+        const auto &occ = chunkOccupancyMapData.data[chunkMapIndex];
+        if (occ.flags == 0)
+            continue;
+
+        const uint32_t baseVoxel =
+            chunkData[occ.index].data.index;
+
+        // Chunk world origin
+        const int wx0 = cx << 6;
+        const int wy0 = cy << 6;
+        const int wz0 = cz << 6;
+
+        // Clamp local bounds
+        const int lx0 = std::max(0, center.x - r - wx0);
+        const int ly0 = std::max(0, center.y - r - wy0);
+        const int lz0 = std::max(0, center.z - r - wz0);
+
+        const int lx1 = std::min(CHUNKWIDTH - 1, center.x + r - wx0);
+        const int ly1 = std::min(CHUNKWIDTH - 1, center.y + r - wy0);
+        const int lz1 = std::min(CHUNKWIDTH - 1, center.z + r - wz0);
+
+        bool anyDirty = false;
+
+        // --------------------------------------------------------
+        // Tight voxel loops (bulk clears)
+        // --------------------------------------------------------
+        for (int lz = lz0; lz <= lz1; ++lz)
         {
-            float yz2 = z2 + (float)(y * y);
-            if (yz2 > r2) continue;
+            const float dz = float(wz0 + lz - center.z);
+            const float dz2 = dz * dz;
+            if (dz2 > r2) continue;
 
-            int xMax = (int)std::floor(std::sqrt(r2 - yz2));
-
-            for (int x = -xMax; x <= xMax; ++x)
+            for (int ly = ly0; ly <= ly1; ++ly)
             {
-                voxel_delete(center + glm::ivec3(x, y, z));
+                const float dy = float(wy0 + ly - center.y);
+                const float dyz2 = dz2 + dy * dy;
+                if (dyz2 > r2) continue;
+
+                const float rem = r2 - dyz2;
+                const int dxMax = (int)std::floor(std::sqrt(rem));
+
+                int xs = std::max(lx0, center.x - dxMax - wx0);
+                int xe = std::min(lx1, center.x + dxMax - wx0);
+                if (xs > xe) continue;
+
+                const uint32_t voxelIndex =
+                    baseVoxel +
+                    xs +
+                    ly * CHUNKWIDTH +
+                    lz * CHUNKWIDTH * CHUNKWIDTH;
+
+                const size_t count = xe - xs + 1;
+
+                // Bulk clear voxels
+                memset(
+                    &arena->data.data[voxelIndex * arena->data.elem_size],
+                    0,
+                    count * arena->data.elem_size
+                );
+
+                // Bulk dirty mark (inline)
+                const size_t start = voxelIndex;
+                const size_t end   = voxelIndex + count - 1;
+                const size_t firstBit = start / arena->dirty_size;
+                const size_t lastBit  = end   / arena->dirty_size;
+
+                uint64_t *bits = (uint64_t *)arena->dirty.data;
+
+                size_t fw = firstBit / 64;
+                size_t lw = lastBit  / 64;
+
+                uint64_t fm = ~0ULL << (firstBit & 63);
+                uint64_t lm = ~0ULL >> (63 - (lastBit & 63));
+
+                if (fw == lw)
+                {
+                    bits[fw] |= (fm & lm);
+                }
+                else
+                {
+                    bits[fw] |= fm;
+                    for (size_t w = fw + 1; w < lw; ++w)
+                        bits[w] = ~0ULL;
+                    bits[lw] |= lm;
+                }
+
+                anyDirty = true;
             }
         }
     }
 }
+
 
 void voxel_delete_box(glm::ivec3 pos, glm::ivec3 size)
 {

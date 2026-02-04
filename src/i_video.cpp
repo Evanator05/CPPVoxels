@@ -19,7 +19,7 @@ void video_init(void) {
     //     SDL_Log("Failed to get display mode: %s", SDL_GetError());
     // }
 
-    window = SDL_CreateWindow("Voxels", 1920, 1080, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("Voxels", 720, 480, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     if (!window) {
         SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
         return;

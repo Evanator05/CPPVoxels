@@ -133,10 +133,17 @@ void cArena_array_clear(cArenaArray *array) {
 
 // cArena
 
-void cArena_init(cArena *cArena, size_t elem_size, size_t capacity) {
+static inline size_t calc_dirty_array_size(size_t capacity, size_t dirty_size) {
+    if (capacity == 0) return 0;
+    size_t dirty_units = (capacity + dirty_size - 1) / dirty_size;
+    return (dirty_units + 63) >> 6;
+}
+
+void cArena_init(cArena *cArena, size_t elem_size, size_t capacity, size_t dirty_size) {
     cArena_array_init(&cArena->data, elem_size, capacity, 2);
     cArena_array_init(&cArena->free, sizeof(cArenaSpan), 10, 2);
-    cArena_array_init(&cArena->dirty, sizeof(cArenaSpan), 10, 2);
+    cArena_array_init(&cArena->dirty, sizeof(uint64_t), calc_dirty_array_size(capacity, dirty_size), 2);
+    cArena->dirty_size = dirty_size;
 }
 
 void cArena_destroy(cArena *cArena) {
@@ -146,54 +153,43 @@ void cArena_destroy(cArena *cArena) {
 }
 
 bool cArena_resize(cArena *cArena, size_t capacity) {
-    return cArena_array_resize(&cArena->data, capacity);
+    bool worked = true;
+    worked &= cArena_array_resize(&cArena->data, capacity);
+    worked &= cArena_array_resize(&cArena->dirty, calc_dirty_array_size(capacity, cArena->dirty_size));
+    return worked;
 }
 
 cArenaAllocation cArena_allocate(cArena *cArena, size_t size) {
-    cArenaAllocation allocation = {
-        .start = SIZE_MAX,
-        .size  = size
-    };
+    cArenaAllocation allocation = { .start = SIZE_MAX, .size = size };
 
-    // First-fit from free list
-    for (size_t i = 0; i < cArena->free.count; i++) {
-        cArenaAllocation *empty =
-            (cArenaAllocation*)cArena_array_slot_unsafe(&cArena->free, i);
+    size_t free_count = cArena->free.count;
+    cArenaArray *free_list = &cArena->free;
 
-        if (empty->size < size)
-            continue;
+    // FAST first-fit: scan free list
+    for (size_t i = 0; i < free_count; ++i) {
+        cArenaAllocation *span = (cArenaAllocation*)cArena_array_slot_unsafe(free_list, i);
+        if (span->size < size) continue;
 
-        allocation.start = empty->start;
+        allocation.start = span->start;
 
-        empty->start += size;
-        empty->size  -= size;
+        span->start += size;
+        span->size -= size;
 
-        if (empty->size == 0)
-            cArena_array_remove(&cArena->free, i);
+        if (span->size == 0) {
+            // remove without memmove: swap with last
+            if (i != free_count - 1) {
+                memcpy(span, cArena_array_slot_unsafe(free_list, free_count - 1), sizeof(cArenaAllocation));
+            }
+            free_list->count--;
+        }
 
         return allocation;
     }
 
-    // Try to grow using tail free span
-    size_t grow_by = size;
-    if (cArena->free.count > 0) {
-        cArenaAllocation *last =
-            (cArenaAllocation*)cArena_array_at(&cArena->free, cArena->free.count - 1);
-
-        if (last->start + last->size == cArena->data.capacity) {
-            allocation.start = last->start;
-            grow_by -= last->size;
-            cArena_array_remove(&cArena->free, cArena->free.count - 1);
-        }
-    }
-
-    // Otherwise grow from end
-    if (allocation.start == SIZE_MAX)
-        allocation.start = cArena->data.capacity;
-
-    if (!cArena_array_resize(&cArena->data,
-            cArena->data.capacity + grow_by)) {
-        allocation.start = SIZE_MAX; // signal failure
+    // If free list empty or no fit, grow arena
+    allocation.start = cArena->data.capacity;
+    if (!cArena_array_resize(&cArena->data, cArena->data.capacity + size)) {
+        allocation.start = SIZE_MAX; // fail
     }
 
     return allocation;
@@ -238,87 +234,95 @@ void cArena_free(cArena *cArena, cArenaSpan allocation) {
 }
 
 void cArena_set(cArena *cArena, const uint8_t *element, size_t index) {
-    if (index >= cArena->data.capacity)
+    if (!cArena || index >= cArena->data.capacity || cArena->dirty_size == 0)
         return;
 
     cArena_array_place(&cArena->data, element, index);
 
-    if (index >= cArena->data.count)
-        cArena->data.count = index + 1;
+    // Figure out which bit corresponds to this element
+    size_t dirty_bit = index / cArena->dirty_size;
 
-    cArenaSpan newSpan = { index, 1 };
-    cArenaArray *dirty = &cArena->dirty;
+    // Figure out which 64-bit word and bit within the word
+    size_t word_idx = dirty_bit / 64;
+    size_t bit_idx  = dirty_bit % 64;
 
-    cArena_array_add(dirty, (const uint8_t *)&newSpan);
-    return;
+    uint64_t *bits = (uint64_t *)cArena->dirty.data;
+    bits[word_idx] |= (1ULL << bit_idx); // mark as dirty
 }
 
-static int cArena_span_cmp(const void *a, const void *b) {
-    const cArenaSpan *sa = (const cArenaSpan *)a;
-    const cArenaSpan *sb = (const cArenaSpan *)b;
-
-    if (sa->start < sb->start) return -1;
-    if (sa->start > sb->start) return  1;
-    return 0;
-}
-
-void cArena_merge_dirty(cArena *arena) {
-    cArenaArray *dirty = &arena->dirty;
-
-    if (dirty->count < 2)
-        return;
-
-    // 1. Sort spans by start
-    qsort(dirty->data,
-          dirty->count,
-          sizeof(cArenaSpan),
-          cArena_span_cmp);
-
-    // 2. Merge in-place
-    size_t write = 0;
-
-    for (size_t read = 1; read < dirty->count; ++read) {
-        cArenaSpan *curr =
-            (cArenaSpan *)cArena_array_slot_unsafe(dirty, write);
-        cArenaSpan *next =
-            (cArenaSpan *)cArena_array_slot_unsafe(dirty, read);
-
-        size_t curr_end = curr->start + curr->size;
-        size_t next_end = next->start + next->size;
-
-        // Overlapping or adjacent
-        if (next->start <= curr_end) {
-            if (next_end > curr_end)
-                curr->size = next_end - curr->start;
-        } else {
-            // Advance write cursor
-            ++write;
-            if (write != read) {
-                *(cArenaSpan *)cArena_array_slot_unsafe(dirty, write) = *next;
-            }
-        }
+cArenaSpan *cArena_get_dirty_spans(cArena *cArena, size_t *out_count) {
+    if (!cArena || cArena->dirty.capacity == 0 || cArena->dirty_size == 0) {
+        if (out_count) *out_count = 0;
+        return NULL;
     }
 
-    // 3. Truncate array
-    dirty->count = write + 1;
+    uint64_t *bits = (uint64_t *)cArena->dirty.data;
+    size_t dirty_size = cArena->dirty_size;
+    size_t max_elems = cArena->data.capacity;
+    size_t total_dirty_units = (max_elems + dirty_size - 1) / dirty_size;
+
+    // Worst case: each dirty unit is its own span
+    cArenaSpan *spans = malloc(total_dirty_units * sizeof(cArenaSpan));
+    if (!spans) { if (out_count) *out_count = 0; return NULL; }
+
+    size_t span_idx = 0;
+    size_t i = 0; // current dirty unit
+
+    while (i < total_dirty_units) {
+        size_t word_idx = i / 64;
+        size_t bit_idx  = i % 64;
+        uint64_t word = bits[word_idx];
+
+        // Skip clean units
+        if (!(word & (1ULL << bit_idx))) {
+            i++;
+            continue;
+        }
+
+        // Start of a dirty span
+        size_t span_start_unit = i;
+        while (i < total_dirty_units) {
+            word_idx = i / 64;
+            bit_idx  = i % 64;
+            word = bits[word_idx];
+            if (!(word & (1ULL << bit_idx))) break; // end of run
+            i++;
+        }
+
+        size_t elem_start = span_start_unit * dirty_size;
+        size_t elem_len   = (i - span_start_unit) * dirty_size;
+        if (elem_start + elem_len > max_elems)
+            elem_len = max_elems - elem_start;
+
+        spans[span_idx++] = (cArenaSpan){ elem_start, elem_len };
+    }
+
+    if (out_count) *out_count = span_idx;
+    return spans;
 }
 
+
 void cArena_clean(cArena *cArena) {
-    cArena_array_clear(&cArena->dirty);
+    memset(cArena->dirty.data, 0, cArena->dirty.elem_size*cArena->dirty.capacity);
 }
 
 void cArena_dirty_all(cArena *cArena) {
-    cArena_array_clear(&cArena->dirty);
-
-    if (cArena->data.capacity == 0)
+    if (!cArena || !cArena->dirty.data || cArena->dirty_size == 0)
         return;
 
-    cArenaSpan dirty;
-    dirty.start = 0;
-    dirty.size  = cArena->data.capacity;
+    size_t max_elems = cArena->data.capacity;  // ALWAYS use capacity
+    if (max_elems == 0)
+        return;
 
-    cArena_array_add(
-        &cArena->dirty,
-        (const uint8_t *)&dirty
-    );
+    size_t total_bits = (max_elems + cArena->dirty_size - 1) / cArena->dirty_size;
+    uint64_t *bits = (uint64_t *)cArena->dirty.data;
+
+    // Clear all words first
+    size_t words = cArena->dirty.capacity;
+    for (size_t i = 0; i < words; ++i)
+        bits[i] = 0;
+
+    // Set exactly the bits needed to cover the arena capacity
+    for (size_t i = 0; i < total_bits; ++i)
+        bits[i / 64] |= (1ULL << (i % 64));
 }

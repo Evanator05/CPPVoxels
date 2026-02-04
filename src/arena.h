@@ -19,6 +19,7 @@ typedef struct _cArena {
     cArenaArray data;
     cArenaArray free;
     cArenaArray dirty;
+    size_t dirty_size;
 } cArena;
 
 typedef struct _cArenaSpan {
@@ -51,7 +52,7 @@ void cArena_array_swap(cArenaArray *array, size_t index1, size_t index2);
 void cArena_array_clear(cArenaArray *array);
 
 // cArena
-void cArena_init(cArena *cArena, size_t elem_size, size_t capacity);
+void cArena_init(cArena *cArena, size_t elem_size, size_t capacity, size_t dirty_size);
 void cArena_destroy(cArena *cArena);
 
 bool cArena_resize(cArena *cArena, size_t capacity);
@@ -60,9 +61,9 @@ void cArena_free(cArena *cArena, cArenaAllocation allocation);
 
 void cArena_set(cArena *cArena, const uint8_t *element, size_t index);
 
-void cArena_merge_dirty(cArena *cArena);
-void cArena_clean(cArena *cArena);
+cArenaSpan *cArena_get_dirty_spans(cArena *cArena, size_t *out_count);
 
+void cArena_clean(cArena *cArena);
 void cArena_dirty_all(cArena *cArena);
 
 #ifdef __cplusplus

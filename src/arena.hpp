@@ -5,7 +5,7 @@
 template <typename T>
 class Arena {
     public:
-        Arena(size_t capacity);
+        Arena(size_t capacity, size_t dirty_size);
 
         ~Arena();
 
@@ -14,8 +14,8 @@ class Arena {
         void free(cArenaAllocation allocation);
 
         void set(const T *element, size_t index);
-
-        void merge_dirty();
+        
+        cArenaSpan *get_dirty_spans(size_t *out_count);
 
         cArenaArray *dirty();
         void dirty_all();
@@ -27,14 +27,12 @@ class Arena {
         T* operator[] (size_t i) {
             return data()+i;
         }
-
-    private:
         ::cArena c_Arena;
 };
 
 template <typename T>
-Arena<T>::Arena(size_t capacity) {
-    cArena_init(&c_Arena, sizeof(T), capacity);
+Arena<T>::Arena(size_t capacity, size_t dirty_size) {
+    cArena_init(&c_Arena, sizeof(T), capacity, dirty_size);
 }
 
 template <typename T>
@@ -63,8 +61,8 @@ void Arena<T>::set(const T *element, size_t index) {
 }
 
 template <typename T>
-void Arena<T>::merge_dirty() {
-    cArena_merge_dirty(&c_Arena);
+cArenaSpan *Arena<T>::get_dirty_spans(size_t *out_count) {
+    return cArena_get_dirty_spans(&c_Arena, out_count);
 }
 
 template <typename T>

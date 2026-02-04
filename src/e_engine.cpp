@@ -18,192 +18,6 @@
 
 bool running = true;
 
-void gen_test_chunks(void) {
-    srand(time(NULL));
-    for (int i = 0; i < chunkData.size(); i++) {
-        Chunk chunk = chunkData[i];
-        int offset = chunk.data.index;
-        for (int j = 0; j < chunk.data.size.x*chunk.data.size.y*chunk.data.size.z; j++) {
-            int number = j;
-            int z = number/(64*64);
-            number %= 64*64;
-            int y = number/64;
-            int x = number%64;
-
-            int gx = x + chunk.pos.x*64;
-            int gy = y + chunk.pos.y*64;
-            int gz = z + chunk.pos.z*64;
-
-            float h1 = sin(gx * 0.1f) * 10.0f;
-            float h2 = cos(gz * 0.2f) * 5.0f;
-            float h3 = sin((gx + gz) * 0.01f) * 8.0f;
-            int terrainHeight = (int)(120 + h1 + h2 + h3);
-
-            if (gx%16 < 2 || gz%16 < 2 || gy%16 < 2) {
-                voxelData[offset+j]->data = (VOXELRED | rand()) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
-            } else {
-                number = rand()%32;
-                voxelData[offset+j]->data = (number | number<<5 | number<<10) | VOXELSOLID*(gy<terrainHeight || gy>(terrainHeight+96));
-            }
-        }
-    }
-}
-
-static inline int clampi(int v, int lo, int hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
-}
-
-static inline float sdf_sphere(float x, float y, float z, float r) {
-    return (x*x + y*y + z*z) - r*r;
-}
-
-static inline float sdf_cylinder_y(float x, float z, float r) {
-    return (x*x + z*z) - r*r;
-}
-
-static inline float sdf_torus(float x, float y, float z, float R, float r) {
-    float qx = (x*x + z*z) - R*R;
-    return (qx*qx + y*y) - r*r;
-}
-
-void gen_chunks_sdf_ball_carved(void) {
-    const float BALL_RADIUS = 128.0f;
-    const glm::vec3 CENTER = glm::vec3(128,128,128);
-    const float EPS = 0.5f; // for numerical normal
-    const float MAX_CARVER_RADIUS = 40.0f + 14.0f;
-    const float BOUND = BALL_RADIUS + MAX_CARVER_RADIUS;
-
-    for (int ci = 0; ci < chunkData.size(); ci++) {
-        Chunk chunk = chunkData[ci];
-        int offset = chunk.data.index;
-
-        // --- slice caching buffers for previous, current, next z ---
-        float slice_prev_storage[64][64], slice_curr_storage[64][64], slice_next_storage[64][64];
-        float (*slice_prev)[64] = slice_prev_storage;
-        float (*slice_curr)[64] = slice_curr_storage;
-        float (*slice_next)[64] = slice_next_storage;
-
-        // precompute first two slices
-        auto full_sdf = [&](float x, float y, float z) -> float {
-            float d = sqrtf(x*x + y*y + z*z) - BALL_RADIUS;
-            d = fmaxf(d, -sqrtf(x*x + z*z) + 8.0f);
-            d = fmaxf(d, -sqrtf(y*y + z*z) + 6.0f);
-            d = fmaxf(d, -sqrtf(x*x + y*y) + 6.0f);
-            float qx = sqrtf(x*x + z*z) - 40.0f;
-            d = fmaxf(d, -sqrtf(qx*qx + y*y) + 5.0f);
-            d = fmaxf(d, -sqrtf(x*x + (y-32)*(y-32) + z*z) + 14.0f);
-            d = fmaxf(d, -sqrtf(x*x + (y+32)*(y+32) + z*z) + 14.0f);
-            return d;
-        };
-
-        // compute first slice
-        int z = 0;
-        for (int y = 0; y < 64; y++) {
-            for (int x = 0; x < 64; x++) {
-                float gx = x + chunk.pos.x * 64;
-                float gy = y + chunk.pos.y * 64;
-                float gz = z + chunk.pos.z * 64;
-                float px = gx - CENTER.x;
-                float py = gy - CENTER.y;
-                float pz = gz - CENTER.z;
-
-                float radial = sqrtf(px*px + py*py + pz*pz);
-                if (radial > BOUND) slice_curr[x][y] = BOUND + 1.0f; // outside
-                else slice_curr[x][y] = full_sdf(px, py, pz);
-            }
-        }
-
-        // compute second slice
-        if (64 > 1) {
-            int z_next = 1;
-            for (int y = 0; y < 64; y++) {
-                for (int x = 0; x < 64; x++) {
-                    float gx = x + chunk.pos.x * 64;
-                    float gy = y + chunk.pos.y * 64;
-                    float gz = z_next + chunk.pos.z * 64;
-                    float px = gx - CENTER.x;
-                    float py = gy - CENTER.y;
-                    float pz = gz - CENTER.z;
-
-                    float radial = sqrtf(px*px + py*py + pz*pz);
-                    if (radial > BOUND) slice_next[x][y] = BOUND + 1.0f;
-                    else slice_next[x][y] = full_sdf(px, py, pz);
-                }
-            }
-        }
-
-        // --- process all slices ---
-        for (z = 0; z < 64; z++) {
-            float (*slice_below)[64] = slice_prev;
-            float (*slice_curr_ptr)[64] = slice_curr;
-            float (*slice_above)[64] = slice_next;
-
-            for (int y = 0; y < 64; y++) {
-                for (int x = 0; x < 64; x++) {
-                    float dC = slice_curr_ptr[x][y];
-                    if (dC >= 0.0f) { voxelData[offset + x + y*64 + z*64*64]->data = 0; continue; }
-
-                    // 6-face neighbors from cached slices
-                    float dXP = (x<63) ? slice_curr_ptr[x+1][y] : full_sdf((x+chunk.pos.x*64+1)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
-                    float dXN = (x>0) ? slice_curr_ptr[x-1][y] : full_sdf((x+chunk.pos.x*64-1)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
-                    float dYP = (y<63) ? slice_curr_ptr[x][y+1] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64+1)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
-                    float dYN = (y>0) ? slice_curr_ptr[x][y-1] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64-1)-CENTER.y, (z+chunk.pos.z*64)-CENTER.z);
-                    float dZP = (z<63) ? slice_above[x][y] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64+1)-CENTER.z);
-                    float dZN = (z>0) ? slice_below[x][y] : full_sdf((x+chunk.pos.x*64)-CENTER.x, (y+chunk.pos.y*64)-CENTER.y, (z+chunk.pos.z*64-1)-CENTER.z);
-
-                    // surface check
-                    if (dXP<0 && dXN<0 && dYP<0 && dYN<0 && dZP<0 && dZN<0) {
-                        voxelData[offset + x + y*64 + z*64*64]->data = VOXELSOLID;
-                        continue;
-                    }
-
-                    // normal
-                    float nx = dXP - dXN;
-                    float ny = dYP - dYN;
-                    float nz = dZP - dZN;
-                    float nl = sqrtf(nx*nx + ny*ny + nz*nz) + 1e-6f;
-                    nx/=nl; ny/=nl; nz/=nl;
-
-                    // color
-                    int R = (int)(16 + ny*12);
-                    int G = (int)(12 + nx*10);
-                    int B = (int)(14 + nz*10);
-                    int stripe = ((int)(x*0.25f + z*0.25f)) & 3;
-                    R += stripe; G -= stripe;
-                    R = R<0?0:(R>31?31:R);
-                    G = G<0?0:(G>31?31:G);
-                    B = B<0?0:(B>31?31:B);
-
-                    voxelData[offset + x + y*64 + z*64*64]->data = R | (G<<5) | (B<<10) | VOXELSOLID;
-                }
-            }
-
-            // shift slices for next iteration
-            float (*tmp)[64] = slice_prev;
-            slice_prev = slice_curr;
-            slice_curr = slice_next;
-            slice_next = tmp;
-
-            // compute next slice if exists
-            int znext = z + 2;
-            if (znext < 64) {
-                for (int y=0; y<64; y++)
-                    for (int x=0; x<64; x++) {
-                        float gx = x + chunk.pos.x*64;
-                        float gy = y + chunk.pos.y*64;
-                        float gz = znext + chunk.pos.z*64;
-                        float px = gx - CENTER.x;
-                        float py = gy - CENTER.y;
-                        float pz = gz - CENTER.z;
-                        float radial = sqrtf(px*px + py*py + pz*pz);
-                        if (radial > BOUND) slice_next[x][y] = BOUND+1.0f;
-                        else slice_next[x][y] = full_sdf(px, py, pz);
-                    }
-            }
-        }
-    }
-}
-
 #include "FastNoiseLite.h"
 void gen_caves(void) {
     const float EPS = 0.5f;
@@ -331,29 +145,6 @@ void gen_caves(void) {
     }
 }
 
-Chunk* find_chunk_for_voxel(int wx, int wy, int wz)
-{
-    for (uint32_t i = 0; i < chunkData.size(); i++) {
-        const auto& chunk = chunkData[i];
-        glm::ivec3 cp = chunk.pos; // chunk world position in chunks
-        int startX = cp.x * CHUNKWIDTH;
-        int startY = cp.y * CHUNKWIDTH;
-        int startZ = cp.z * CHUNKWIDTH;
-        int endX   = startX + CHUNKWIDTH;
-        int endY   = startY + CHUNKWIDTH;
-        int endZ   = startZ + CHUNKWIDTH;
-
-        if (wx >= startX && wx < endX &&
-            wy >= startY && wy < endY &&
-            wz >= startZ && wz < endZ)
-        {
-            return &chunkData[i];
-        }
-    }
-    return nullptr;
-}
-
-
 #include <unordered_map>
 
 // helper functions for chunk math
@@ -364,6 +155,11 @@ inline int lfloor_mod(int a, int b)
 {
     int r = a % b;
     return (r < 0) ? r + b : r;
+}
+
+inline int fast_floorf_to_int(float x) {
+    int i = (int)x;
+    return i - (i > x);
 }
 
 struct ivec3_hash {
@@ -379,8 +175,7 @@ void load_vox_file(const char *filename) {
 
     std::unordered_map<glm::ivec3, uint32_t, ivec3_hash> chunkMap;
 
-    for (uint32_t inst_idx = 0; inst_idx < scene->num_instances; inst_idx++)
-    {
+    for (uint32_t inst_idx = 0; inst_idx < scene->num_instances; inst_idx++) {
         const ogt_vox_instance* instance = &scene->instances[inst_idx];
         const ogt_vox_model* model = scene->models[instance->model_index];
         const ogt_vox_transform *transform = &scene->instances[inst_idx].transform;
@@ -403,9 +198,27 @@ void load_vox_file(const char *filename) {
                     int lz = z - pivotZ;
 
                     // Apply MagicaVoxel rotation/axes (integer math)
-                    int mx = transform->m00*lx + transform->m10*ly + transform->m20*lz + transform->m30;
-                    int my = transform->m01*lx + transform->m11*ly + transform->m21*lz + transform->m31;
-                    int mz = transform->m02*lx + transform->m12*ly + transform->m22*lz + transform->m32;
+                    float fx =
+                        transform->m00 * (lx + 0.5f) +
+                        transform->m10 * (ly + 0.5f) +
+                        transform->m20 * (lz + 0.5f) +
+                        transform->m30;
+
+                    float fy =
+                        transform->m01 * (lx + 0.5f) +
+                        transform->m11 * (ly + 0.5f) +
+                        transform->m21 * (lz + 0.5f) +
+                        transform->m31;
+
+                    float fz =
+                        transform->m02 * (lx + 0.5f) +
+                        transform->m12 * (ly + 0.5f) +
+                        transform->m22 * (lz + 0.5f) +
+                        transform->m32;
+
+                    int mx = fast_floorf_to_int(fx);
+                    int my = fast_floorf_to_int(fy);
+                    int mz = fast_floorf_to_int(fz);
 
                     // Swap axes to engine space
                     int wx = mx;
@@ -508,6 +321,8 @@ inline int floor_mod(int a, int b) {
     return (r < 0) ? r + b : r;
 }
 
+static int radius = 8;
+
 void move_camera(double deltaTime) {
     if (input_ispressed(SPEEDUP)) {
         MOVESPEED += 5.0;
@@ -571,7 +386,7 @@ void move_camera(double deltaTime) {
     if (input_isheld(BREAK_BLOCK)) {
         glm::ivec3 wp = glm::floor(worldInfo.cameraPos + (forward*16.0f));
 
-        voxel_delete_sphere(wp, 16);
+        voxel_delete_sphere(wp, radius);
 
         gpubuffers_upload();
     }
@@ -581,7 +396,7 @@ int fps = 0;
 void draw_fps_debug(float fps, float frameTimeMs)
 {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(150, 250), ImVec2(150, 250));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(200, 250), ImVec2(200, 250));
     ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
 
     // Color-coded FPS
@@ -606,6 +421,8 @@ void draw_fps_debug(float fps, float frameTimeMs)
 
     ImGui::Text("Chunks: %u", chunkData.size());
 
+    ImGui::SliderInt("Radius", &radius, 1, 128);
+    ImGui::SliderFloat("Speed", &MOVESPEED, 1, 1000);
     ImGui::End();
 }
 
@@ -624,17 +441,19 @@ void engine_update(double deltaTime) {
 
     if (input_ispressed(SWAP_SCENE_1)) {
         gen_caves();
+        voxelData.dirty_all();
         gpubuffers_upload();
     }
     if (input_ispressed(SWAP_SCENE_2)) {
-        gen_chunks_sdf_ball_carved();
+        voxelData.dirty_all();
         gpubuffers_upload();
     }
     if (input_ispressed(SWAP_SCENE_3)) {
-        gen_test_chunks();
+        voxelData.dirty_all();
         gpubuffers_upload();
     }
     if (input_ispressed(SWAP_SCENE_4)) {
+        voxelData.dirty_all();
         gpubuffers_upload();
     }
 
