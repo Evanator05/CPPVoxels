@@ -20,7 +20,7 @@ struct ChunkOccupancy {
 
 vec3 getVoxelColor(uint data) {
     return vec3(                       // values from 0-31
-        float(data&VOXELRED),          // get the red date
+        float(data&VOXELRED),          // get the red data
         float((data&VOXELGREEN) >> 5), // get the green data
         float((data&VOXELBLUE) >> 10)  // get the blue data
     ) / float(VOXELRED);               // divide by 31 to make values 0-1

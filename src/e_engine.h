@@ -11,7 +11,7 @@ void engine_update(double deltaTime);
 void engine_loop(void);
 
 // the main entry point to the engine
-int engine_main(void);
+int engine_main(int argc, char* argv[]);
 
 // quits the game
 void engine_quit(void);

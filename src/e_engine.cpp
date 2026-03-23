@@ -169,7 +169,6 @@ struct ivec3_hash {
 };
 
 void load_vox_file(const char *filename) {
-
     const ogt_vox_scene* scene;
     if (!loader_loadvoxfile(filename, scene)) return;
 
@@ -275,7 +274,7 @@ void engine_init() {
 
     #define VOX
     #ifdef VOX
-    worldInfo.cameraPos.y = 200;
+    camera.position.y = 200;
     load_vox_file("minecraft.vox");
     #endif
     #ifdef NVOX
@@ -322,107 +321,142 @@ inline int floor_mod(int a, int b) {
 }
 
 static int radius = 8;
-
+static float color[3] = {1.0, 0.0, 0.0};
+static bool solid;
+static float distance = 16.0f;
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>           // basic vector/matrix types
+#include <glm/gtx/norm.hpp>      // for length2(), distance2(), etc.
 void move_camera(double deltaTime) {
-    if (input_ispressed(SPEEDUP)) {
-        MOVESPEED += 5.0;
-    }
+    // --- Speed control ---
+    if (input_ispressed(SPEEDUP))   MOVESPEED += 5.0;
+    if (input_ispressed(SPEEDDOWN)) MOVESPEED -= 5.0;
+    MOVESPEED = glm::max(MOVESPEED, 0.0f);
 
-    if (input_ispressed(SPEEDDOWN)) {
-        MOVESPEED -= 5.0;
-    }
-    MOVESPEED = MOVESPEED < 0 ? 0 : MOVESPEED;
+    // --- Mouse look ---
+    glm::vec2 mouse_rel = input_getmouse_rel() * 0.005f;
 
-    glm::vec2 mouse_rel = input_getmouse_rel();
-    mouse_rel *= 0.005f;
     if (input_get_mouse_lock()) {
-        worldInfo.cameraRot += (mouse_rel);
+        glm::vec3 right = camera.rotation * glm::vec3(1, 0, 0);
+
+        glm::quat yawRot   = glm::angleAxis(mouse_rel.x, glm::vec3(0,1,0));
+        glm::quat pitchRot = glm::angleAxis(mouse_rel.y, right);
+
+        camera.rotation = glm::normalize(yawRot * pitchRot * camera.rotation);
     }
-    
-    // Clamp pitch to avoid flipping
-    constexpr float MAX_PITCH = glm::radians(89.0f);
-    worldInfo.cameraRot.y = glm::clamp(
-        worldInfo.cameraRot.y,
-        -MAX_PITCH,
-        MAX_PITCH
-    );
 
-    // Direction vectors
-    const float yaw   = worldInfo.cameraRot.x;
-    const float pitch = -worldInfo.cameraRot.y;
+    // --- Direction vectors ---
+    glm::vec3 forward = camera.rotation * glm::vec3(0,0,1); // +Z forward
+    glm::vec3 right   = camera.rotation * glm::vec3(1,0,0);
+    glm::vec3 up      = camera.rotation * glm::vec3(0,1,0);
 
-    // Forward vector
-    glm::vec3 forward = glm::normalize(glm::vec3(
-        cosf(pitch) * sinf(yaw),
-        sinf(pitch),
-        cosf(pitch) * cosf(yaw)
-    ));
-
-    // Right vector
-    glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-
-    // Up vector
-    glm::vec3 up = glm::normalize(glm::cross(right, forward));
-
-    // Movement input
+    // --- Movement input ---
     glm::vec3 move(0.0f);
-
     if (input_isheld(FORWARD))  move += forward;
     if (input_isheld(BACKWARD)) move -= forward;
-    if (input_isheld(RIGHT))    move -= right;
-    if (input_isheld(LEFT))     move += right;
+    if (input_isheld(RIGHT))    move += right;
+    if (input_isheld(LEFT))     move -= right;
     if (input_isheld(UP))       move += up;
     if (input_isheld(DOWN))     move -= up;
 
-    // Prevent diagonal speed boost
-    if (glm::dot(move, move) > 0.1f) {
+    if (glm::length2(move) > 0.0001f)
         move = glm::normalize(move);
-    } else move = glm::vec3(0.0f);
 
-    // Apply movement
-    worldInfo.cameraPos += move * MOVESPEED * (float)deltaTime;
+    camera.position += move * MOVESPEED * (float)deltaTime;
 
-    // block breaking
+    // --- Block breaking ---
     if (input_isheld(BREAK_BLOCK)) {
-        glm::ivec3 wp = glm::floor(worldInfo.cameraPos + (forward*16.0f));
+        glm::ivec3 wp = glm::floor(camera.position + forward * distance);
 
-        voxel_delete_sphere(wp, radius);
+        uint16_t r = static_cast<uint16_t>(color[0] * 31.0f + 0.5f);
+        uint16_t g = static_cast<uint16_t>(color[1] * 31.0f + 0.5f);
+        uint16_t b = static_cast<uint16_t>(color[2] * 31.0f + 0.5f);
 
+        voxel_sphere(wp, radius, (VOXELSOLID*solid) | r | (g<<5) | (b<<10));
         gpubuffers_upload();
     }
 }
 
 int fps = 0;
+
 void draw_fps_debug(float fps, float frameTimeMs)
 {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(200, 250), ImVec2(200, 250));
-    ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+    ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
 
-    // Color-coded FPS
-    ImVec4 fpsColor;
-    if (fps >= 60.0f)        fpsColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // green
-    else if (fps >= 30.0f)   fpsColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // yellow
-    else                     fpsColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // red
+    if (ImGui::CollapsingHeader("Performance")) {
+        // Color-coded FPS
+        ImVec4 fpsColor;
+        if (fps >= 60.0f)        fpsColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // green
+        else if (fps >= 30.0f)   fpsColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // yellow
+        else                     fpsColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // red
 
-    ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
-    ImGui::Text("Frame Time: %02.2f ms", frameTimeMs);
+        ImGui::TextColored(fpsColor, "FPS: %.1f", fps);
+        ImGui::Text("Frame Time: %02.2f ms", frameTimeMs);
 
-    static float fpsHistory[120] = {0};
-    static int idx = 0;
-    fpsHistory[idx] = frameTimeMs;
-    idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
+        static float fpsHistory[120] = {0};
+        static int idx = 0;
+        fpsHistory[idx] = frameTimeMs;
+        idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
 
-    ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 30.0f, ImVec2(130, 50));
+        ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 30.0f, ImVec2(130, 50));
 
-    ImGui::Text("X: %02.2f", worldInfo.cameraPos.x);
-    ImGui::Text("Y: %02.2f", worldInfo.cameraPos.y);
-    ImGui::Text("Z: %02.2f", worldInfo.cameraPos.z);
+        ImGui::Text("X: %02.2f", camera.position.x);
+        ImGui::Text("Y: %02.2f", camera.position.y);
+        ImGui::Text("Z: %02.2f", camera.position.z);
 
-    ImGui::Text("Chunks: %u", chunkData.size());
+        ImGui::Text("Chunks: %u", chunkData.size());
+    }
+    ImGui::SliderFloat("Speed", &MOVESPEED, 1, 1000, "%.1fv/s");
 
-    ImGui::SliderInt("Radius", &radius, 1, 128);
-    ImGui::SliderFloat("Speed", &MOVESPEED, 1, 1000);
+
+    if (ImGui::CollapsingHeader("Brush Settings")) {
+        ImGui::SliderInt("Radius", &radius, 1, 128);
+        ImGui::SliderFloat("Distance", &distance, 1, 64);
+        
+        ImGui::ColorPicker4(
+            "Color",
+            color,
+            ImGuiColorEditFlags_DisplayRGB |
+            ImGuiColorEditFlags_InputRGB
+        );
+        ImGui::Checkbox(
+            "Solid",
+            &solid
+        );
+    }
+    if (ImGui::CollapsingHeader("Controls")) {
+        ImGui::Text("Move: WASD");
+        ImGui::Text("Build: E");
+        ImGui::Text("Toggle Cursor: L");
+        ImGui::Text("Toggle Fullscreen: F11");
+    }
+
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+
+    ImVec2 screenSize = ImGui::GetIO().DisplaySize;
+    ImVec2 center(screenSize.x * 0.5f, screenSize.y * 0.5f);
+
+    float size = 8.0f;      // half-length of each arm
+    float thickness = 2.0f;
+    ImU32 color = IM_COL32(255, 255, 255, 255);
+
+    // Horizontal line
+    draw->AddLine(
+        ImVec2(center.x - size, center.y),
+        ImVec2(center.x + size, center.y),
+        color,
+        thickness
+    );
+
+    // Vertical line
+    draw->AddLine(
+        ImVec2(center.x, center.y - size),
+        ImVec2(center.x, center.y + size),
+        color,
+        thickness
+    );
+
     ImGui::End();
 }
 
@@ -492,7 +526,7 @@ void engine_loop() {
     }
 }
 
-int engine_main() {
+int engine_main(int argc, char* argv[]) {
     engine_init();
     engine_loop();
     engine_cleanup();

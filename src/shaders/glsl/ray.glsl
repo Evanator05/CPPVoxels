@@ -63,3 +63,22 @@ Intersection intersectAABB(Ray ray, Box box) {
     
     return intersection;
 }
+
+vec2 getUV(ivec2 pos, ivec2 size)
+{
+    vec2 uv = (vec2(pos) + 0.5) / vec2(size); // [0,1]
+    uv = uv * 2.0 - 1.0;                      // [0,1] → [-1,1]
+    uv.y = uv.y;                           // flip Y to match Vulkan top-left
+    uv.x = -uv.x;
+    return uv;
+}
+
+Ray getRay(vec2 uv, mat4 invViewProj) {
+    vec4 nearPoint = invViewProj * vec4(uv, 0.0, 1.0);
+    vec4 farPoint  = invViewProj * vec4(uv, 1.0, 1.0);
+
+    nearPoint /= nearPoint.w;
+    farPoint  /= farPoint.w;
+
+    return createRay(nearPoint.xyz, normalize(farPoint.xyz - nearPoint.xyz));
+}

@@ -17,3 +17,5 @@ void video_update(void);
 
 // gets the initialized sdl window
 SDL_Window* video_get_window(void);
+
+float video_get_aspect_ratio(void);

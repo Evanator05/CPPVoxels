@@ -188,7 +188,7 @@ cArenaAllocation cArena_allocate(cArena *cArena, size_t size) {
 
     // If free list empty or no fit, grow arena
     allocation.start = cArena->data.capacity;
-    if (!cArena_array_resize(&cArena->data, cArena->data.capacity + size)) {
+    if (!cArena_resize(cArena, cArena->data.capacity + size)) {
         allocation.start = SIZE_MAX; // fail
     }
 

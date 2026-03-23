@@ -139,8 +139,7 @@ inline void voxel_delete(glm::ivec3 pos)
 }
 
 #include "string.h"
-void voxel_delete_sphere(glm::ivec3 center, float radius)
-{
+void voxel_sphere(glm::ivec3 center, float radius, uint16_t data) {
     const int r  = (int)std::ceil(radius);
     const float r2 = radius * radius;
 
@@ -233,11 +232,13 @@ void voxel_delete_sphere(glm::ivec3 center, float radius)
                 const size_t count = xe - xs + 1;
 
                 // Bulk clear voxels
-                memset(
-                    &arena->data.data[voxelIndex * arena->data.elem_size],
-                    0,
-                    count * arena->data.elem_size
-                );
+                uint16_t value = data;
+                uint16_t* dst = (uint16_t*)&arena->data.data[
+                    voxelIndex * arena->data.elem_size
+                ];
+
+                for (size_t i = 0; i < count; i++)
+                    dst[i] = value;
 
                 // Bulk dirty mark (inline)
                 const size_t start = voxelIndex;

@@ -2,8 +2,13 @@
 #include "i_graphics.h"
 
 #include <stdio.h>
-
+#include <iostream>
+#include <string>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp>
 WorldInfo worldInfo;
+Camera camera;
+
 SDL_GPUBuffer *worldInfoBuffer;
 SDL_GPUTransferBuffer *worldInfoTransferBuffer;
 
@@ -52,10 +57,15 @@ void worldInfo_TransforToGPU() {
 
 void worldInfo_init() {
     worldInfo_CreateBuffers();
+    camera.fov = glm::radians(90.0f);
+    camera.near = 0.1f;
+    camera.far  = 500.0f;
+    camera.projectionType = Perspective;
 }
 
 void worldInfo_update() {
     worldInfo.time += 0.006;
+    worldInfo.cameraTransform = getInverseProjectionMatrix(camera);
     worldInfo_TransforToGPU();
 }
 

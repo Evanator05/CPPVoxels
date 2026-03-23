@@ -6,7 +6,7 @@
 
 SDL_Window *window = NULL;
 
-void video_init(void) {
+void video_init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return;
@@ -26,13 +26,13 @@ void video_init(void) {
     }
 }
 
-void video_cleanup(void) {
+void video_cleanup() {
     SDL_DestroyWindow(window);
     window = NULL;
     SDL_Quit();
 }
 
-void video_update(void) {
+void video_update() {
     SDL_Event event;
     while(SDL_PollEvent(&event)) {
         gui_process_event(&event);
@@ -58,6 +58,12 @@ void video_update(void) {
     }
 }
 
-SDL_Window* video_get_window(void) {
+SDL_Window* video_get_window() {
     return window;
+}
+
+float video_get_aspect_ratio() {
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    return (float)w/h;
 }

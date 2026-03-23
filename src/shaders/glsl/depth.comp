@@ -8,8 +8,8 @@ layout(local_size_x = 16, local_size_y = 16) in;
 layout(set=1, binding = 0, r32f) uniform writeonly image2D destImage;
 
 layout(set = 0, binding = 0) buffer WorldInfo {
-    vec4 posTime;
-    vec2 cameraRot;
+    mat4 cameraTransform;
+    float time;
 } worldInfo;
 
 layout(set = 0, binding = 1) buffer Sizes {
@@ -51,7 +51,6 @@ bool DDAVoxels(Chunk c, Ray ray, out float dist) {
     while (voxel.x >= 0 && voxel.x < c.size.x &&
             voxel.y >= 0 && voxel.y < c.size.y &&
             voxel.z >= 0 && voxel.z < c.size.z) {
-
         int index = c.index + voxel.x + voxel.y * c.size.x + voxel.z * c.size.x * c.size.y;
         int data = getVoxel(index);
         if (isVoxelSolid(data)) {
@@ -137,44 +136,13 @@ bool DDAChunks(Ray ray, out float dist) {
     return false;
 }
 
-
-vec2 getUV(ivec2 pos, ivec2 size) {
-    float aspectRatio = float(size.x)/size.y;
-    vec2 uv = vec2(pos)/size;
-    uv *= 2;
-    uv -= 1;
-    uv.y *= -1;
-    uv.x *= aspectRatio;
-    return uv;
-}
-
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     ivec2 imgSize = imageSize(destImage);
     if (pos.x >= imgSize.x || pos.y >= imgSize.y) return; // dont do pixels that are outside of the texture
 
     vec2 uv = getUV(pos, imgSize);
-
-    vec3 dir = normalize(vec3(uv, 1.0));
-
-    vec3 camPos = worldInfo.posTime.xyz;
-    vec2 camRot = worldInfo.cameraRot;
-    float time = worldInfo.posTime.w;
-
-    // Quaternion for pitch
-    vec4 qPitch = vec4(vec3(1.0, 0.0, 0.0) * sin(camRot.y*0.5), cos(camRot.y*0.5));
-
-    // Quaternion for yaw
-    vec4 qYaw = vec4(vec3(0.0, 1.0, 0.0) * sin(camRot.x*0.5), cos(camRot.x*0.5));
-
-    // Combine into single rotation
-    vec4 q = quatMultiply(qYaw, qPitch);
-    dir = rotateVectorByQuat(dir, q);
-
-    Ray ray = createRay(
-        camPos,
-        dir
-    );
+    Ray ray = getRay(uv, worldInfo.cameraTransform);
 
     float maxDist = imgSize.y * 0.5;
     float dist;

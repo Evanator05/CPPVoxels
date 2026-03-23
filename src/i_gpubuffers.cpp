@@ -125,33 +125,6 @@ void gpubuffers_uploadBufferFromVector(std::vector<T> &data, SDL_GPUBuffer *&buf
     SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
 }
 
-// template <typename T>
-// void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
-//     if (data.size() == 0) return;
-
-//     SDL_GPUDevice *device = graphics_getDevice();
-
-//     // copy voxel data into transfer buffer
-//     void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
-//     T *voxelPtr = (T*)ptr;
-//     memcpy(voxelPtr, data.data(), data.size()*sizeof(T));
-//     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
-
-//     // create transfer buffer location
-//     SDL_GPUTransferBufferLocation tbl{};
-//     tbl.transfer_buffer = transferBuffer;
-//     tbl.offset = 0;
-
-//     // create transfer buffer region
-//     SDL_GPUBufferRegion br{};
-//     br.buffer = buffer;
-//     br.offset = 0;
-//     br.size = data.size()*sizeof(T);
-
-//     // upload to the buffer
-//     SDL_UploadToGPUBuffer(gpubuffers_cpy, &tbl, &br, false);
-// }
-
 template <typename T>
 void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
     if (data.size() == 0) return;
@@ -164,7 +137,7 @@ void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SD
     void *ptr = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
     uint8_t *dst = (uint8_t *)ptr;
     uint8_t *src = (uint8_t *)data.data();
-
+    
     for (size_t i = 0; i < count; i++) {
         cArenaSpan span = spans[i];
         
@@ -190,7 +163,6 @@ void gpubuffers_uploadBufferFromArena(Arena<T> &data, SDL_GPUBuffer *&buffer, SD
     free(spans);
     data.clean();
 }
-
 
 template <typename T>
 void gpubuffers_createBufferFromAllocator(Allocator<T> &data, SDL_GPUBuffer *&buffer, SDL_GPUTransferBuffer *&transferBuffer) {
