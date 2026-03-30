@@ -1,12 +1,7 @@
-#include "i_video.h"
-#include "e_engine.h"
-#include "i_graphics.h"
-#include "i_input.h"
-#include "i_gui.h"
+#include "window.h"
+#include "input.h"
 
-SDL_Window *window = NULL;
-
-void video_init() {
+void Window::Init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return;
@@ -26,44 +21,40 @@ void video_init() {
     }
 }
 
-void video_cleanup() {
+void Window::Process() {
+    SDL_Event event;
+    while(SDL_PollEvent(&event)) {
+        //gui_process_event(&event);
+        switch (event.type) {
+            case SDL_EVENT_QUIT:
+                engine->Quit();
+                break;
+            case SDL_EVENT_WINDOW_RESIZED:
+                //graphics_resize();
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                if (event.key.key == SDLK_ESCAPE)
+                    engine->Quit();
+                if (event.key.key == SDLK_F11) {
+                    SetFullscreen(!GetFullscreen());
+                    //graphics_resize();
+                }
+                break;
+        }
+        GetModule<Input>().HandleEvent(&event);
+    }
+}
+
+void Window::Shutdown() {
     SDL_DestroyWindow(window);
     window = NULL;
     SDL_Quit();
 }
 
-void video_update() {
-    SDL_Event event;
-    while(SDL_PollEvent(&event)) {
-        gui_process_event(&event);
-        switch (event.type) {
-            case SDL_EVENT_QUIT:
-                engine_quit();
-                break;
-            case SDL_EVENT_WINDOW_RESIZED:
-                graphics_resize();
-                break;
-            case SDL_EVENT_KEY_DOWN:
-                if (event.key.key == SDLK_ESCAPE)
-                    engine_quit();
-                if (event.key.key == SDLK_F11) {
-                    static bool fullscreen;
-                    SDL_SetWindowFullscreen(window, !fullscreen);
-                    graphics_resize();
-                    fullscreen = !fullscreen;
-                }
-                break;
-        }
-        input_handleevent(&event);
-    }
+void Window::SetFullscreen(bool fullscreen) {
+    SDL_SetWindowFullscreen(window, fullscreen);   
 }
 
-SDL_Window* video_get_window() {
-    return window;
-}
-
-float video_get_aspect_ratio() {
-    int w, h;
-    SDL_GetWindowSize(window, &w, &h);
-    return (float)w/h;
+bool Window::GetFullscreen() {
+    return SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN;
 }
