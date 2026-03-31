@@ -19,7 +19,7 @@ void Audio::Init() {
 
     int deviceCount;
     SDL_AudioDeviceID *devices = SDL_GetAudioPlaybackDevices(&deviceCount);
-    printf("%u", deviceCount);
+    
     audioDevice = SDL_OpenAudioDevice(devices[2], &spec);
     if (!audioDevice) {
         SDL_Log("Failed to open audio: %s", SDL_GetError());

@@ -7,12 +7,14 @@
 #include "window.h"
 #include "input.h"
 #include "audio.h"
+#include "modules/renderer/renderer.h"
 
 Engine::Engine() {
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();
-    AddModule<Audio>();
+    //AddModule<Audio>();
+    AddModule<Renderer>();
 }
 
 Engine::~Engine() {
@@ -38,7 +40,7 @@ void Engine::Process() {
 }
 
 void Engine::Shutdown() {
-    for (EngineModule* module : std::views::reverse(moduleOrder)) {
+    for (EngineModule *module : std::views::reverse(moduleOrder)) {
         module->Shutdown();
     }
 }
@@ -57,7 +59,7 @@ void Engine::Quit() {
 template<typename T, typename... Args>
 T& Engine::AddModule(Args&&... args) {
     static_assert(std::is_base_of<EngineModule, T>::value, "T must derive from EngineModule");
-
+    
     auto type = std::type_index(typeid(T));
 
     if (modules.find(type) != modules.end()) {

@@ -18,6 +18,7 @@ class Input : public EngineModule {
         void HandleEvent(const SDL_Event *event);
 
         void BindInput(const char *name, SDL_Keycode keycode);
+        void RebindInput(const char *name, SDL_Keycode keycode);
         void UnbindInput(const char *name);
 
         

@@ -1,5 +1,6 @@
 #include "window.h"
 #include "input.h"
+#include "modules/renderer/renderer.h"
 
 void Window::Init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -30,14 +31,14 @@ void Window::Process() {
                 engine->Quit();
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
-                //graphics_resize();
+                GetModule<Renderer>().UpdateDisplayTextures();
                 break;
             case SDL_EVENT_KEY_DOWN:
                 if (event.key.key == SDLK_ESCAPE)
                     engine->Quit();
                 if (event.key.key == SDLK_F11) {
                     SetFullscreen(!GetFullscreen());
-                    //graphics_resize();
+                    GetModule<Renderer>().UpdateDisplayTextures();
                 }
                 break;
         }
@@ -57,4 +58,14 @@ void Window::SetFullscreen(bool fullscreen) {
 
 bool Window::GetFullscreen() {
     return SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN;
+}
+
+glm::ivec2 Window::GetSize() {
+    glm::ivec2 size;
+    SDL_GetWindowSizeInPixels(window, &size.x, &size.y);
+    return size;
+}
+
+SDL_Window* Window::GetWindow() {
+    return window;
 }

@@ -50,7 +50,6 @@ class Engine {
         bool running = true;
         double timer = 0.0;
 };
-
 template<typename T>
 T& EngineModule::GetModule() {
     return engine->GetModule<T>();
