@@ -20,6 +20,6 @@ class Texture {
         SDL_GPUTextureUsageFlags usage{};
         SDL_GPUTextureFormat format{};
     private:
-        SDL_GPUDevice *device;
-        SDL_GPUTexture *texture;
+        SDL_GPUDevice *device = nullptr;
+        SDL_GPUTexture *texture = nullptr;
 };

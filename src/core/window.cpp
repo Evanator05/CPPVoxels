@@ -25,7 +25,6 @@ void Window::Init() {
 void Window::Process() {
     SDL_Event event;
     while(SDL_PollEvent(&event)) {
-        //gui_process_event(&event);
         switch (event.type) {
             case SDL_EVENT_QUIT:
                 engine->Quit();
@@ -42,6 +41,7 @@ void Window::Process() {
                 }
                 break;
         }
+        //gui_process_event(&event);
         GetModule<Input>().HandleEvent(&event);
     }
 }
