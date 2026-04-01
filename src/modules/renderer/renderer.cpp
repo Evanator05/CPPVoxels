@@ -20,8 +20,6 @@ void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
     SDL_ClaimWindowForGPUDevice(device, window);
 }
 
-
-
 void Renderer::Init() {
     glm::ivec2 size = GetModule<Window>().GetSize();
 
@@ -42,12 +40,13 @@ void Renderer::Process() {
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
     for (ComputePass *pass : computePassOrder) {
 
-        SDL_GPUStorageTextureReadWriteBinding rw_bindings[pass->readwrite_storage_textures.size()]{};
+        std::vector<SDL_GPUStorageTextureReadWriteBinding> rw_bindings(pass->readwrite_storage_textures.size());
+
         for (size_t i = 0; i < pass->readwrite_storage_textures.size(); i++) {
-            rw_bindings[i].texture = pass->readwrite_storage_textures.data()[i];
+            rw_bindings[i].texture = pass->readwrite_storage_textures[i]->GetGPUTexture();
         }
 
-        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw_bindings, pass->readwrite_storage_textures.size(), pass->readwrite_storage_buffers.data(), pass->readwrite_storage_buffers.size());
+        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw_bindings.data(), rw_bindings.size(), pass->readwrite_storage_buffers.data(), pass->readwrite_storage_buffers.size());
         SDL_BindGPUComputePipeline(cpass, pass->GetPipeline());
         
         // bind buffers
@@ -57,8 +56,8 @@ void Renderer::Process() {
         if (pass->uniform_buffers.size()) SDL_BindGPUComputeStorageBuffers(cpass, 0, pass->uniform_buffers.data(),pass->uniform_buffers.size());
 
         Uint32 localSize = 16;
-        Uint32 groupsX = ((size.x)+localSize-1)/localSize;
-        Uint32 groupsY = ((size.y)+localSize-1)/localSize;
+        Uint32 groupsX = ((size.x)+pass->threadcount.x-1)/pass->threadcount.x;
+        Uint32 groupsY = ((size.y)+pass->threadcount.y-1)/pass->threadcount.y;
         SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
         SDL_EndGPUComputePass(cpass);
     }
@@ -95,14 +94,13 @@ void Renderer::Shutdown() {
 
 void Renderer::CreateDisplayTextures() {
     glm::ivec2 size = GetModule<Window>().GetSize();
-
-    Texture& display = displayTextures.try_emplace("display", device).first->second;
-
-    display.size = size;
-    display.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    display.usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    Texture& display = displayTextures.try_emplace(
+        "display",
+        device,
+        size, 
+        SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM).first->second;
     display.CreateTexture();
-
     displayTextureOrder.push_back(&display);
 }
 
@@ -114,14 +112,10 @@ void Renderer::UpdateDisplayTextures() {
 
 void Renderer::CreateComputePipeline() {
     ComputePass& display = computePasses.try_emplace("display", device).first->second;
-
     display.threadcount = {16, 16, 1};
     display.spirv = test_spirv;
     display.spirv_size = std::size(test_spirv);
-
-    display.readwrite_storage_textures.push_back(displayTextures.at("display").GetGPUTexture());
-
+    display.readwrite_storage_textures.push_back(&displayTextures.at("display"));
     display.CreatePipeline();
-
     computePassOrder.push_back(&display);
 }

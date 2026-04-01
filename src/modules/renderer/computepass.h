@@ -8,6 +8,8 @@
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_gpu.h"
 
+#include "modules/renderer/texture.h"
+
 class ComputePass {
     public:
         ComputePass(SDL_GPUDevice *device);
@@ -18,7 +20,7 @@ class ComputePass {
         
         glm::ivec3 threadcount;
         
-        std::vector<SDL_GPUTexture*> readwrite_storage_textures;
+        std::vector<Texture*> readwrite_storage_textures;
         std::vector<SDL_GPUStorageBufferReadWriteBinding> readwrite_storage_buffers;
         std::vector<SDL_GPUTextureSamplerBinding> samplers;
         std::vector<SDL_GPUTexture*> readonly_storage_textures;
