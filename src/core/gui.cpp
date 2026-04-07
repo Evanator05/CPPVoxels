@@ -22,6 +22,12 @@ void GUI::Init() {
     init.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
 
     ImGui_ImplSDLGPU3_Init(&init);
+
+    GetModule<Window>().InputEvent.Bind(
+        [this](SDL_Event* event) {
+            ProcessEvent(event);
+        }
+    );
 }
 
 void GUI::PreProcess() {
@@ -40,8 +46,7 @@ void GUI::ProcessEvent(SDL_Event *event) {
     ImGui_ImplSDL3_ProcessEvent(event);
 }
 
-void GUI::Render(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass)
-{
+void GUI::Render(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass) {
     ImGui_ImplSDLGPU3_RenderDrawData(
         ImGui::GetDrawData(),
         cmd,

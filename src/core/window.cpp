@@ -1,7 +1,6 @@
 #include "window.h"
-#include "input.h"
-#include "modules/renderer/renderer.h"
-#include "gui.h"
+
+
 void Window::Init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -30,20 +29,18 @@ void Window::Process() {
                 engine->Quit();
                 break;
             case SDL_EVENT_WINDOW_RESIZED:
-                GetModule<Renderer>().UpdateDisplayTextures();
+                ResizedScreen.Emit(GetSize());
                 break;
             case SDL_EVENT_KEY_DOWN:
                 if (event.key.key == SDLK_ESCAPE)
                     engine->Quit();
                 if (event.key.key == SDLK_F11) {
                     SetFullscreen(!GetFullscreen());
-                    GetModule<Renderer>().UpdateDisplayTextures();
+                    ResizedScreen.Emit(GetSize());
                 }
                 break;
         }
-        //gui_process_event(&event);
-        GetModule<GUI>().ProcessEvent(&event);
-        GetModule<Input>().HandleEvent(&event);
+        InputEvent.Emit(&event);
     }
 }
 

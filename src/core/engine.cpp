@@ -75,9 +75,7 @@ T& Engine::AddModule(Args&&... args) {
     
     auto type = std::type_index(typeid(T));
 
-    if (modules.find(type) != modules.end()) {
-        throw std::runtime_error("Module already exists");
-    }
+    if (modules.find(type) != modules.end()) throw std::runtime_error("Module already exists");
 
     auto module = std::make_unique<T>(this, std::forward<Args>(args)...);
     T* rawPtr = module.get();

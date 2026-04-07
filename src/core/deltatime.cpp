@@ -34,6 +34,7 @@ double DeltaTime::GetTimescale() {
 void DeltaTime::SetMaxFPS(double maxfps) {
     this->maxfps = maxfps;
 }
+
 double DeltaTime::GetMaxFPS() {
     return maxfps;
 }

@@ -19,7 +19,7 @@ class Renderer : public EngineModule {
         void Shutdown(void) override;
 
         void CreateDisplayTextures(void);
-        void UpdateDisplayTextures(void);
+        void UpdateDisplayTextures(glm::ivec2 size);
 
         void CreateComputePipeline(void);
 

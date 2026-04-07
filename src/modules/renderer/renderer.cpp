@@ -25,6 +25,12 @@ void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
 void Renderer::Init() {
     glm::ivec2 size = GetModule<Window>().GetSize();
 
+    GetModule<Window>().ResizedScreen.Bind(
+        [this](glm::ivec2 size) {
+            UpdateDisplayTextures(size);
+        }
+    );
+
     InitDevice(device, GetModule<Window>().GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
@@ -121,8 +127,7 @@ void Renderer::CreateDisplayTextures() {
     displayTextureOrder.push_back(&display);
 }
 
-void Renderer::UpdateDisplayTextures() {
-    glm::ivec2 size = GetModule<Window>().GetSize();
+void Renderer::UpdateDisplayTextures(glm::ivec2 size) {
     displayTextures.at("display").size = size;
     displayTextures.at("display").CreateTexture();
 }

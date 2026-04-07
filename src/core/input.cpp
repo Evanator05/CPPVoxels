@@ -1,6 +1,8 @@
 #include "input.h"
 #include "stdio.h"
 
+#include "window.h"
+
 void Input::Init() {
     BindInput("forward", SDLK_W);
     BindInput("backward", SDLK_S);
@@ -12,6 +14,12 @@ void Input::Init() {
     BindInput("speeddown", SDLK_MINUS);
     BindInput("mouselock", SDLK_L);
     BindInput("break_block", SDLK_E);
+
+    GetModule<Window>().InputEvent.Bind(
+        [this](SDL_Event* event) {
+            HandleEvent(event);
+        }
+    );
 }
 
 void Input::Process() {
