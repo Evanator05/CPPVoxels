@@ -14,7 +14,7 @@ class Texture {
         void CreateTexture(void);
         void DestroyTexture(void);
 
-        SDL_GPUTexture *GetGPUTexture(void);
+        SDL_GPUTexture* GetGPUTexture(void);
 
         glm::ivec2 size{0, 0};
         SDL_GPUTextureUsageFlags usage{};

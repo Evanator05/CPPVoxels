@@ -22,6 +22,8 @@ class Renderer : public EngineModule {
         void UpdateDisplayTextures(void);
 
         void CreateComputePipeline(void);
+
+        SDL_GPUDevice* GetDevice();
     private:
         SDL_GPUDevice* device = nullptr;
         std::unordered_map<std::string, ComputePass> computePasses;

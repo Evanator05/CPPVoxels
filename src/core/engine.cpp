@@ -7,14 +7,22 @@
 #include "window.h"
 #include "input.h"
 #include "audio.h"
+#include "modules/voxel/voxelmanager.h"
 #include "modules/renderer/renderer.h"
+#include "gui.h"
 
 Engine::Engine() {
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();
+    
+
+    AddModule<VoxelManager>();
+    // game logic
+
     //AddModule<Audio>();
     AddModule<Renderer>();
+    AddModule<GUI>();
 }
 
 Engine::~Engine() {
@@ -31,6 +39,11 @@ void Engine::Process() {
     for (EngineModule *module : moduleOrder) {
         module->PreProcess();
     }
+
+    ImGui::Begin("Stats");
+    ImGui::Text("testing");
+    ImGui::End();
+
     for (EngineModule *module : moduleOrder) {
         module->Process();
     }

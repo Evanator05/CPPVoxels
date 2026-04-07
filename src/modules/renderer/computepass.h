@@ -29,9 +29,9 @@ class ComputePass {
 
         void CreatePipeline(void);
         void DestroyPipeline(void);
-        SDL_GPUComputePipeline *GetPipeline(void);
+        SDL_GPUComputePipeline* GetPipeline(void);
         
     private:
-        SDL_GPUDevice *device;
-        SDL_GPUComputePipeline *computePipeline;
+        SDL_GPUDevice *device = nullptr;
+        SDL_GPUComputePipeline *computePipeline = nullptr;
 };

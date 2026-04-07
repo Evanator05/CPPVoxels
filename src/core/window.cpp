@@ -1,7 +1,7 @@
 #include "window.h"
 #include "input.h"
 #include "modules/renderer/renderer.h"
-
+#include "gui.h"
 void Window::Init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -42,6 +42,7 @@ void Window::Process() {
                 break;
         }
         //gui_process_event(&event);
+        GetModule<GUI>().ProcessEvent(&event);
         GetModule<Input>().HandleEvent(&event);
     }
 }

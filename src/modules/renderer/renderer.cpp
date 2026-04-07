@@ -3,6 +3,8 @@
 
 #include <stdexcept>
 
+#include "gui.h"
+
 #include "shaders/main.h"
 #include "shaders/depth.h"
 #include "shaders/upscaler.h"
@@ -77,6 +79,21 @@ void Renderer::Process() {
         SDL_EndGPUCopyPass(copyPass);
     }
 
+    // render gui
+    {
+        SDL_GPUColorTargetInfo color{};
+        color.texture = swapTex;
+        color.load_op  = SDL_GPU_LOADOP_LOAD;
+        color.store_op = SDL_GPU_STOREOP_STORE;
+
+        ImGui::Render();
+        ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), cmd);
+        SDL_GPURenderPass *rpass = SDL_BeginGPURenderPass(cmd, &color, 1, nullptr);
+
+        GetModule<GUI>().Render(cmd, rpass);
+        SDL_EndGPURenderPass(rpass);
+    }
+
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 
@@ -118,4 +135,8 @@ void Renderer::CreateComputePipeline() {
     display.readwrite_storage_textures.push_back(&displayTextures.at("display"));
     display.CreatePipeline();
     computePassOrder.push_back(&display);
+}
+
+SDL_GPUDevice* Renderer::GetDevice() {
+    return device;
 }

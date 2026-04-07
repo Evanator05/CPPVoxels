@@ -36,6 +36,6 @@ void Texture::DestroyTexture() {
     texture = nullptr;
 }
 
-SDL_GPUTexture *Texture::GetGPUTexture() {
+SDL_GPUTexture* Texture::GetGPUTexture() {
     return texture;
 }

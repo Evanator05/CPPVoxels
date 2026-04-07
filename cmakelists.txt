@@ -84,7 +84,7 @@ set(ALL_SOURCES
     ${IMGUI_FILES}
 )
 
-add_executable(Voxels ${SRC_FILES})
+add_executable(Voxels ${ALL_SOURCES})
 
 find_package(Vulkan REQUIRED)
 

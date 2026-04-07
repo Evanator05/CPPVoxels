@@ -51,12 +51,6 @@ void Input::HandleEvent(const SDL_Event *event) {
     }
 }
 
-/**
- * @file input.cpp
- * @brief Header file for mathematical utility functions.
- * @param name
- * @param keycode
- */
 void Input::BindInput(const char *name, SDL_Keycode keycode) {
     InputBinding binding{};
     binding.keycode = keycode;
@@ -87,12 +81,10 @@ void Input::UnbindInput(const char *name) {
 }
 
 uint8_t Input::GetState(const char *name) {
-    int i;
-    for (i = 0; i < input_bindings.size(); i++)
+    size_t i, size = input_bindings.size();
+    for (i = 0; i < size; i++)
         if (strcmp(name, input_bindings[i].name) == 0) break;
-
-    if (i == input_bindings.size()) return 0; // if no binding found
-
+    if (i == size) return 0; // if no binding found
     return input_action_states[i];
 }
 
