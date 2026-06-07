@@ -23,18 +23,22 @@ void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
 }
 
 void Renderer::Init() {
-    glm::ivec2 size = GetModule<Window>().GetSize();
+    Window &window = GetModule<Window>();
 
-    GetModule<Window>().ResizedScreen.Bind(
+    window.ResizedScreen.Bind(
         [this](glm::ivec2 size) {
             UpdateDisplayTextures(size);
         }
     );
 
-    InitDevice(device, GetModule<Window>().GetWindow());
+    glm::ivec2 size = window.GetSize();
+
+    
+
+    InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
-    SDL_SetGPUSwapchainParameters(device, GetModule<Window>().GetWindow(), SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+    SDL_SetGPUSwapchainParameters(device, window.GetWindow(), SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
 
     CreateDisplayTextures();
     CreateComputePipeline();
@@ -44,7 +48,8 @@ void Renderer::Init() {
 }
 
 void Renderer::Process() {
-    glm::ivec2 size = GetModule<Window>().GetSize();
+    Window &window = GetModule<Window>();
+    glm::ivec2 size = window.GetSize();
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
     for (ComputePass *pass : computePassOrder) {
 
@@ -72,7 +77,7 @@ void Renderer::Process() {
 
     SDL_GPUTexture *swapTex = nullptr;
     Uint32 sw = 0, sh = 0;
-    SDL_WaitAndAcquireGPUSwapchainTexture(cmd, GetModule<Window>().GetWindow(), &swapTex, &sw, &sh);
+    SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window.GetWindow(), &swapTex, &sw, &sh);
 
     // copy image into swaptexture
     if (swapTex) {

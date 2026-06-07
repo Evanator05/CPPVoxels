@@ -32,6 +32,7 @@ class Input : public EngineModule {
         bool IsHeld(const char *name);
         bool IsPressed(const char *name);
         bool IsReleased(const char *name);
+        glm::vec2 GetMouseMovement(void);
 
     private:
         const uint8_t Held =     0b00000001;

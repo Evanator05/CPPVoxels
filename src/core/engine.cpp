@@ -11,19 +11,25 @@
 #include "modules/renderer/renderer.h"
 #include "modules/voxelrenderer/voxelrenderer.h"
 #include "gui.h"
+#include "console.h"
+
+
+#include "test.h"
 
 Engine::Engine() {
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();
-    
+    AddModule<Console>();
     AddModule<VoxelManager>();
 
     //AddModule<Audio>();
+    AddModule<Test>(); // test features in here
 
     AddModule<Renderer>();
     AddModule<VoxelRenderer>();
     AddModule<GUI>();
+    
 }
 
 Engine::~Engine() {
@@ -39,16 +45,6 @@ void Engine::Init() {
 void Engine::Process() {
     for (EngineModule *module : moduleOrder) {
         module->PreProcess();
-    }
-
-    ImGui::Begin("Stats");
-    ImGui::Text("testing");
-    ImGui::End();
-    if (GetModule<Input>().IsPressed("forward")) {
-        printf("pressed");
-    }
-    if (GetModule<Input>().IsReleased("forward")) {
-        printf("released");
     }
     for (EngineModule *module : moduleOrder) {
         module->Process();

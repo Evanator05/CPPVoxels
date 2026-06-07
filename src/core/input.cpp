@@ -20,7 +20,7 @@ void Input::Init() {
     CreateAction("speeddown");
     CreateAction("mouselock");
     CreateAction("break_block");
-
+    
     CreateBinding("forward", SDLK_W);
     CreateBinding("backward", SDLK_S);
     CreateBinding("left", SDLK_A);
@@ -98,6 +98,7 @@ void Input::DeleteAction(const char *name) {
             ++bindIt;
     }
     // remove action
+    free(actions_by_name[name].name);
     actions_by_name.erase(it);
 }
 
@@ -131,4 +132,8 @@ bool Input::IsPressed(const char *name) {
 
 bool Input::IsReleased(const char *name) {
     return GetState(name) & Released;
+}
+
+glm::vec2 Input::GetMouseMovement() {
+    return mouse_rel;
 }
