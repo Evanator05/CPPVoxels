@@ -8,6 +8,9 @@
 
 #include "glm/vec2.hpp"
 
+#include <unordered_map>
+#include <unordered_map>
+
 class Input : public EngineModule {
     public:
         using EngineModule::EngineModule;
@@ -16,12 +19,16 @@ class Input : public EngineModule {
         void Shutdown(void) override;
 
         void HandleEvent(const SDL_Event *event);
-
-        void BindInput(const char *name, SDL_Keycode keycode);
-        void RebindInput(const char *name, SDL_Keycode keycode);
-        void UnbindInput(const char *name);
-
+        void HandleMouseEvent(glm::vec2 offset);
+        void HandleKeyEvent(SDL_Keycode key, bool pressed);
         
+        void CreateAction(const char *name);
+        void DeleteAction(const char *name);
+
+        void CreateBinding(const char *name, SDL_Keycode keycode);
+        void DeleteBinding(const char *name, SDL_Keycode keycode);
+
+        uint8_t GetState(const char *name);
         bool IsHeld(const char *name);
         bool IsPressed(const char *name);
         bool IsReleased(const char *name);
@@ -30,14 +37,12 @@ class Input : public EngineModule {
         const uint8_t Held =     0b00000001;
         const uint8_t Pressed =  0b00000010;
         const uint8_t Released = 0b00000100;
-        struct InputBinding {
+        struct InputAction {
             char *name;
-            SDL_Keycode keycode;
+            uint8_t action_state;
         };
+        std::unordered_map<std::string, InputAction> actions_by_name;
+        std::unordered_multimap<SDL_Keycode, InputAction*> actions_by_keycode;
 
-        std::vector<InputBinding> input_bindings;
-        std::vector<uint8_t> input_action_states;
-        glm::vec2 mouse_rel;
-
-        uint8_t GetState(const char *name);
+        glm::vec2 mouse_rel; 
 };

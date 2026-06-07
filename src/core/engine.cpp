@@ -9,6 +9,7 @@
 #include "audio.h"
 #include "modules/voxel/voxelmanager.h"
 #include "modules/renderer/renderer.h"
+#include "modules/voxelrenderer/voxelrenderer.h"
 #include "gui.h"
 
 Engine::Engine() {
@@ -16,12 +17,12 @@ Engine::Engine() {
     AddModule<Input>();
     AddModule<Window>();
     
-
     AddModule<VoxelManager>();
-    // game logic
 
     //AddModule<Audio>();
+
     AddModule<Renderer>();
+    AddModule<VoxelRenderer>();
     AddModule<GUI>();
 }
 
@@ -43,7 +44,12 @@ void Engine::Process() {
     ImGui::Begin("Stats");
     ImGui::Text("testing");
     ImGui::End();
-
+    if (GetModule<Input>().IsPressed("forward")) {
+        printf("pressed");
+    }
+    if (GetModule<Input>().IsReleased("forward")) {
+        printf("released");
+    }
     for (EngineModule *module : moduleOrder) {
         module->Process();
     }

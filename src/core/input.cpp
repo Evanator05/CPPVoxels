@@ -4,96 +4,121 @@
 #include "window.h"
 
 void Input::Init() {
-    BindInput("forward", SDLK_W);
-    BindInput("backward", SDLK_S);
-    BindInput("left", SDLK_A);
-    BindInput("right", SDLK_D);
-    BindInput("up", SDLK_SPACE);
-    BindInput("down", SDLK_LSHIFT);
-    BindInput("speedup", SDLK_EQUALS);
-    BindInput("speeddown", SDLK_MINUS);
-    BindInput("mouselock", SDLK_L);
-    BindInput("break_block", SDLK_E);
-
     GetModule<Window>().InputEvent.Bind(
         [this](SDL_Event* event) {
             HandleEvent(event);
         }
     );
+
+    CreateAction("forward");
+    CreateAction("backward");
+    CreateAction("left");
+    CreateAction("right");
+    CreateAction("up");
+    CreateAction("down");
+    CreateAction("speedup");
+    CreateAction("speeddown");
+    CreateAction("mouselock");
+    CreateAction("break_block");
+
+    CreateBinding("forward", SDLK_W);
+    CreateBinding("backward", SDLK_S);
+    CreateBinding("left", SDLK_A);
+    CreateBinding("right", SDLK_D);
+    CreateBinding("up", SDLK_SPACE);
+    CreateBinding("down", SDLK_LSHIFT);
+    CreateBinding("speedup", SDLK_EQUALS);
+    CreateBinding("speeddown", SDLK_MINUS);
+    CreateBinding("mouselock", SDLK_L);
+    CreateBinding("break_block", SDLK_E);
 }
 
 void Input::Process() {
-    for (int i = 0; i < input_bindings.size(); i++) {
-        input_action_states[i] &= Held;
+    for (auto& action : actions_by_name) {
+        action.second.action_state &= Held;
     }
     mouse_rel = glm::vec2(0.0f);
 }
 
 void Input::Shutdown() {
-    for (InputBinding binding : input_bindings) {
-        free(binding.name);
+    for (auto action : actions_by_name) {
+        free(action.second.name);
     }
 }
 
-void Input::HandleEvent(const SDL_Event *event) {
-    // handle mouse motion
-    if (event->type == SDL_EVENT_MOUSE_MOTION) {
-        mouse_rel.x += (float)event->motion.xrel;
-        mouse_rel.y += (float)event->motion.yrel;
-        return;
-    }
-    
-    // handle keyboard inputs
-    bool pressed = event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat;
-    bool released = event->type == SDL_EVENT_KEY_UP;
+void Input::HandleMouseEvent(glm::vec2 offset) {
+    mouse_rel += offset;
+}
 
-    for (int i = 0; i < input_bindings.size(); i++) {
-        if (input_bindings[i].keycode == event->key.key) {
-            if (pressed) {
-                input_action_states[i] |= Held | Pressed;
-            } else if (released) {
-                input_action_states[i] |= ~Held;
-                input_action_states[i] &= Released;
-            }
+void Input::HandleKeyEvent(SDL_Keycode key, bool pressed) {
+    auto range = actions_by_keycode.equal_range(key);
+
+    for (auto it = range.first; it != range.second; ++it) {
+        InputAction* action = it->second;
+        if (pressed) {
+            action->action_state |= (Held | Pressed);
+        } else {
+            action->action_state &= ~Held;
+            action->action_state |= Released;
         }
     }
 }
 
-void Input::BindInput(const char *name, SDL_Keycode keycode) {
-    InputBinding binding{};
-    binding.keycode = keycode;
-    binding.name = (char*)malloc(strlen(name)+1);
-    strcpy(binding.name, name);
-    input_bindings.push_back(binding);
-    input_action_states.resize(input_bindings.size());
-}
-
-void Input::RebindInput(const char *name, SDL_Keycode keycode) {
-    for (size_t i = 0; i < input_bindings.size(); i++) {
-        if (strcmp(name, input_bindings[i].name) != 0) continue;
-        input_bindings[i].keycode = keycode;
-        return;
+void Input::HandleEvent(const SDL_Event *event) {
+    switch (event->type) {
+        case SDL_EVENT_MOUSE_MOTION:
+            HandleMouseEvent(glm::vec2(event->motion.xrel, event->motion.yrel));
+            break;
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+            if (event->key.repeat) break; // dont handle repeats
+            HandleKeyEvent(event->key.key, event->type == SDL_EVENT_KEY_DOWN);
+            break;
     }
 }
 
-void Input::UnbindInput(const char *name) {
-    for (size_t i = 0; i < input_bindings.size(); i++) {
-        if (strcmp(name, input_bindings[i].name) != 0) continue;
-        free(input_bindings[i].name);
-
-        input_bindings.erase(input_bindings.begin() + i);
-        input_action_states.erase(input_action_states.begin() + i);
-
+void Input::CreateAction(const char *name) {
+    InputAction action{};
+    action.name = (char*)malloc(strlen(name)+1);
+    strcpy(action.name, name);
+    actions_by_name[name] = action;
+}
+void Input::DeleteAction(const char *name) {
+    auto it = actions_by_name.find(name);
+    if (it == actions_by_name.end())
         return;
+
+    InputAction* action = &it->second;
+
+    // remove all bindings pointing to this action
+    for (auto bindIt = actions_by_keycode.begin(); bindIt != actions_by_keycode.end();) {
+        if (bindIt->second == action)
+            bindIt = actions_by_keycode.erase(bindIt);
+        else
+            ++bindIt;
+    }
+    // remove action
+    actions_by_name.erase(it);
+}
+
+void Input::CreateBinding(const char *name, SDL_Keycode keycode) {
+    actions_by_keycode.emplace(keycode, &actions_by_name[name]);
+}
+
+void Input::DeleteBinding(const char *name, SDL_Keycode keycode) {
+    auto range = actions_by_keycode.equal_range(keycode);
+    for (auto it = range.first; it != range.second; ) {
+        if (it->second && it->second->name && strcmp(it->second->name, name) == 0) {
+            it = actions_by_keycode.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
 uint8_t Input::GetState(const char *name) {
-    size_t i, size = input_bindings.size();
-    for (i = 0; i < size; i++)
-        if (strcmp(name, input_bindings[i].name) == 0) break;
-    if (i == size) return 0; // if no binding found
-    return input_action_states[i];
+    if (!actions_by_name.contains(name)) return 0;
+    return actions_by_name[name].action_state;
 }
 
 bool Input::IsHeld(const char *name) {

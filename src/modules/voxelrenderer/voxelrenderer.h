@@ -2,7 +2,7 @@
 
 #include "engine.h"
 
-class VoxelManager : public EngineModule {
+class VoxelRenderer : public EngineModule {
     public:
         using EngineModule::EngineModule;
         void Init(void) override;
