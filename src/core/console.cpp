@@ -26,6 +26,7 @@ void Console::Init() {
     Input &input = GetModule<Input>();
     input.CreateAction("toggleconsole");
     input.CreateBinding("toggleconsole", SDLK_GRAVE);
+
 }
 
 void Console::Process() {
@@ -136,10 +137,115 @@ void Console::Log(const std::string& message, LogLevel level) {
         messages.erase(messages.begin());
 }
 
-void Console::ExecuteCommand(std::string command) {
+void Console::DeleteCommand(std::string command)
+{
+    commands.erase(command);
+}
 
+static std::vector<std::string> TokenizeCommand(const std::string& input)
+{
+    std::vector<std::string> tokens;
+    std::string current;
+    bool inQuotes = false;
+
+    for (size_t i = 0; i < input.size(); i++)
+    {
+        char c = input[i];
+
+        if (c == '\\' && i + 1 < input.size())
+        {
+            char next = input[i + 1];
+
+            if (next == '"' || next == '\\')
+            {
+                current += next;
+                i++;
+                continue;
+            }
+        }
+
+        if (c == '"')
+        {
+            inQuotes = !inQuotes;
+            continue;
+        }
+
+        if (!inQuotes && std::isspace(static_cast<unsigned char>(c)))
+        {
+            if (!current.empty())
+            {
+                tokens.push_back(current);
+                current.clear();
+            }
+        }
+        else
+        {
+            current += c;
+        }
+    }
+
+    if (!current.empty())
+        tokens.push_back(current);
+
+    return tokens;
+}
+
+void Console::ExecuteCommand(std::string command)
+{
+    std::vector<std::string> tokens = TokenizeCommand(command);
+
+    if (tokens.empty())
+        return;
+
+    std::string name = tokens[0];
+
+    auto it = commands.find(name);
+    if (it == commands.end())
+    {
+        Log("Unknown command, use help for more info: " + name, LogLevel::Error);
+        return;
+    }
+
+    std::vector<std::string> args(tokens.begin() + 1, tokens.end());
+
+    try
+    {
+        it->second(args);
+    }
+    catch (const std::exception& e)
+    {
+        Log(std::string("Command error: ") + e.what(), LogLevel::Error);
+    }
 }
 
 void Console::SetVisible(bool visible) {
     this->visible = visible;
+}
+
+void Console::help() {
+    Log("test", LogLevel::Info);
+    Log("test", LogLevel::Info);
+    Log("test", LogLevel::Info);
+    Log("test", LogLevel::Info);
+    Log("test", LogLevel::Info);
+}
+
+template<>
+int Console::Convert<int>(const std::string &s) {
+    return std::stoi(s);
+}
+
+template<>
+float Console::Convert<float>(const std::string &s) {
+    return std::stof(s);
+}
+
+template<>
+double Console::Convert<double>(const std::string &s) {
+    return std::stod(s);
+}
+
+template<>
+std::string Console::Convert<std::string>(const std::string &s) {
+    return s;
 }

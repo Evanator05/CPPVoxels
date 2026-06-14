@@ -21,7 +21,9 @@ class Input : public EngineModule {
         void HandleEvent(const SDL_Event *event);
         void HandleMouseEvent(glm::vec2 offset);
         void HandleKeyEvent(SDL_Keycode key, bool pressed);
-        
+        void HandleGamepadButtonEvent(Uint8 button, bool pressed);
+
+
         void CreateAction(const char *name);
         void DeleteAction(const char *name);
 
@@ -29,6 +31,7 @@ class Input : public EngineModule {
         void DeleteBinding(const char *name, SDL_Keycode keycode);
 
         uint8_t GetState(const char *name);
+        uint8_t GetStrength(const char *name);
         bool IsHeld(const char *name);
         bool IsPressed(const char *name);
         bool IsReleased(const char *name);

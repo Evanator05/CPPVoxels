@@ -12,10 +12,6 @@
 
 #include "shaders/test.h"
 
-Renderer::Renderer(Engine *e) : EngineModule(e) {
-    
-}
-
 void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
     device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
     if (!device) throw std::runtime_error("Failed to create GPU device");
@@ -33,18 +29,13 @@ void Renderer::Init() {
 
     glm::ivec2 size = window.GetSize();
 
-    
-
     InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
-    SDL_SetGPUSwapchainParameters(device, window.GetWindow(), SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
-
+    SetVSync(true); // setting to false uncaps framerate
+    
     CreateDisplayTextures();
     CreateComputePipeline();
-
-    // Uncomment to uncap framerate
-    //SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
 }
 
 void Renderer::Process() {
@@ -52,27 +43,7 @@ void Renderer::Process() {
     glm::ivec2 size = window.GetSize();
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
     for (ComputePass *pass : computePassOrder) {
-
-        std::vector<SDL_GPUStorageTextureReadWriteBinding> rw_bindings(pass->readwrite_storage_textures.size());
-
-        for (size_t i = 0; i < pass->readwrite_storage_textures.size(); i++) {
-            rw_bindings[i].texture = pass->readwrite_storage_textures[i]->GetGPUTexture();
-        }
-
-        SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw_bindings.data(), rw_bindings.size(), pass->readwrite_storage_buffers.data(), pass->readwrite_storage_buffers.size());
-        SDL_BindGPUComputePipeline(cpass, pass->GetPipeline());
-        
-        // bind buffers
-        if (pass->samplers.size()) SDL_BindGPUComputeSamplers(cpass, 0, pass->samplers.data(), pass->samplers.size());
-        if (pass->readonly_storage_textures.size()) SDL_BindGPUComputeStorageTextures(cpass, 0, pass->readonly_storage_textures.data(), pass->readonly_storage_textures.size());
-        if (pass->readonly_storage_buffers.size()) SDL_BindGPUComputeStorageBuffers(cpass, 0, pass->readonly_storage_buffers.data(), pass->readonly_storage_buffers.size());
-        if (pass->uniform_buffers.size()) SDL_BindGPUComputeStorageBuffers(cpass, 0, pass->uniform_buffers.data(),pass->uniform_buffers.size());
-
-        Uint32 localSize = 16;
-        Uint32 groupsX = ((size.x)+pass->threadcount.x-1)/pass->threadcount.x;
-        Uint32 groupsY = ((size.y)+pass->threadcount.y-1)/pass->threadcount.y;
-        SDL_DispatchGPUCompute(cpass, groupsX, groupsY, 1);
-        SDL_EndGPUComputePass(cpass);
+        pass->Execute(cmd);
     }
 
     SDL_GPUTexture *swapTex = nullptr;
@@ -113,7 +84,7 @@ void Renderer::Shutdown() {
         texture->DestroyTexture();
     }
     for (ComputePass *pass : computePassOrder) {
-        pass->DestroyPipeline();
+        pass->Destroy();
     }
 
     if (device) SDL_DestroyGPUDevice(device);
@@ -143,8 +114,18 @@ void Renderer::CreateComputePipeline() {
     display.spirv = test_spirv;
     display.spirv_size = std::size(test_spirv);
     display.readwrite_storage_textures.push_back(&displayTextures.at("display"));
-    display.CreatePipeline();
+    display.dispatchFunc = [this](const ComputePass& pass) {
+        Window &w = GetModule<Window>();
+        glm::ivec2 size = w.GetSize();
+        return glm::uvec3(((size.x)+pass.threadcount.x-1)/pass.threadcount.x, ((size.y)+pass.threadcount.y-1)/pass.threadcount.y, 1);
+    };
+    display.Create();
     computePassOrder.push_back(&display);
+}
+
+void Renderer::SetVSync(bool enable) {
+    Window &window = GetModule<Window>();
+    SDL_SetGPUSwapchainParameters(device, window.GetWindow(), SDL_GPU_SWAPCHAINCOMPOSITION_SDR, enable ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
 }
 
 SDL_GPUDevice* Renderer::GetDevice() {

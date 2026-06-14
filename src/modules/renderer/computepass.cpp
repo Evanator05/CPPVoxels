@@ -2,15 +2,34 @@
 
 #include <stdexcept>
 
-ComputePass::ComputePass(SDL_GPUDevice *device) {
-    this->device = device;
+
+void ComputePass::Execute(SDL_GPUCommandBuffer* cmd) {
+    
+    std::vector<SDL_GPUStorageTextureReadWriteBinding> rw_bindings(readwrite_storage_textures.size());
+
+    for (size_t i = 0; i < readwrite_storage_textures.size(); i++) {
+        rw_bindings[i].texture = readwrite_storage_textures[i]->GetGPUTexture();
+    }
+
+    SDL_GPUComputePass *cpass = SDL_BeginGPUComputePass(cmd, rw_bindings.data(), rw_bindings.size(), readwrite_storage_buffers.data(), readwrite_storage_buffers.size());
+    SDL_BindGPUComputePipeline(cpass, GetPipeline());
+    
+    // bind buffers
+    if (samplers.size()) SDL_BindGPUComputeSamplers(cpass, 0, samplers.data(), samplers.size());
+    if (readonly_storage_textures.size()) SDL_BindGPUComputeStorageTextures(cpass, 0, readonly_storage_textures.data(), readonly_storage_textures.size());
+    if (readonly_storage_buffers.size()) SDL_BindGPUComputeStorageBuffers(cpass, 0, readonly_storage_buffers.data(), readonly_storage_buffers.size());
+    if (uniform_buffers.size()) SDL_BindGPUComputeStorageBuffers(cpass, 0, uniform_buffers.data(),uniform_buffers.size());
+
+    glm::uvec3 groups{1,1,1};
+    if (dispatchFunc) {
+        groups = dispatchFunc(*this);
+    }
+    
+    SDL_DispatchGPUCompute(cpass, groups.x, groups.y, groups.z);
+    SDL_EndGPUComputePass(cpass);
 }
 
-ComputePass::~ComputePass() {
-    DestroyPipeline();
-}
-
-void ComputePass::CreatePipeline() {
+void ComputePass::Create() {
     SDL_GPUComputePipelineCreateInfo createInfo{};
 
     createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
@@ -33,7 +52,7 @@ void ComputePass::CreatePipeline() {
     if (!computePipeline) throw std::runtime_error("Failed to create compute pipeline");
 }
 
-void ComputePass::DestroyPipeline() {
+void ComputePass::Destroy() {
     if (computePipeline) SDL_ReleaseGPUComputePipeline(device, computePipeline);
     computePipeline = nullptr;
 }

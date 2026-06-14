@@ -13,13 +13,13 @@
 #include "gui.h"
 #include "console.h"
 
-
 #include "test.h"
 
 Engine::Engine() {
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();
+
     AddModule<Console>();
     AddModule<VoxelManager>();
 

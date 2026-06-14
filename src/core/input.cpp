@@ -64,6 +64,10 @@ void Input::HandleKeyEvent(SDL_Keycode key, bool pressed) {
     }
 }
 
+void Input::HandleGamepadButtonEvent(Uint8 button, bool pressed) {
+    
+}
+
 void Input::HandleEvent(const SDL_Event *event) {
     switch (event->type) {
         case SDL_EVENT_MOUSE_MOTION:
@@ -74,6 +78,11 @@ void Input::HandleEvent(const SDL_Event *event) {
             if (event->key.repeat) break; // dont handle repeats
             HandleKeyEvent(event->key.key, event->type == SDL_EVENT_KEY_DOWN);
             break;
+
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP:
+            HandleGamepadButtonEvent(event->gbutton.button, event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+            break;
     }
 }
 
@@ -83,6 +92,7 @@ void Input::CreateAction(const char *name) {
     strcpy(action.name, name);
     actions_by_name[name] = action;
 }
+
 void Input::DeleteAction(const char *name) {
     auto it = actions_by_name.find(name);
     if (it == actions_by_name.end())
@@ -120,6 +130,10 @@ void Input::DeleteBinding(const char *name, SDL_Keycode keycode) {
 uint8_t Input::GetState(const char *name) {
     if (!actions_by_name.contains(name)) return 0;
     return actions_by_name[name].action_state;
+}
+
+uint8_t Input::GetStrength(const char *name) {
+    return GetState(name);
 }
 
 bool Input::IsHeld(const char *name) {

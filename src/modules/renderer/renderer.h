@@ -13,7 +13,7 @@
 
 class Renderer : public EngineModule {
     public:
-        Renderer(Engine *e);
+        using EngineModule::EngineModule;
         void Init(void) override;
         void Process(void) override;
         void Shutdown(void) override;
@@ -22,6 +22,8 @@ class Renderer : public EngineModule {
         void UpdateDisplayTextures(glm::ivec2 size);
 
         void CreateComputePipeline(void);
+
+        void SetVSync(bool enable);
 
         SDL_GPUDevice* GetDevice();
     private:

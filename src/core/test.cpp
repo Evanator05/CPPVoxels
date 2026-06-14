@@ -5,7 +5,10 @@
 
 #include "stdio.h"
 
+
+
 void Test::Init() {
+    Console &console = GetModule<Console>();
 
 }
 
@@ -18,8 +21,8 @@ void Test::Process() {
     if (ImGui::Button("PRESS ME!")) {
         console.Log("pressed button", Console::LogLevel::Info);
     }
-    
     ImGui::End();
+    
     if (input.IsPressed("forward")) {
         console.Log("pressed", Console::LogLevel::Info);
     }
@@ -27,3 +30,4 @@ void Test::Process() {
         console.Log("released", Console::LogLevel::Info);
     }
 }
+
