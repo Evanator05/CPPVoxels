@@ -13,7 +13,7 @@ void Test::Print(std::string output) {
 void Test::Init() {
     Console &console = GetModule<Console>();
     console.CreateCommand("print", [this](std::string output){
-        (output);
+        Print(output);
     });
 
 }
