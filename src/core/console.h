@@ -7,59 +7,116 @@
 #include <chrono>
 #include <unordered_map>
 #include <functional>
+#include <tuple>
+#include <stdexcept>
+#include <sstream>
+#include <iomanip>
 
-class Console : public EngineModule {
-    public:
-        enum class LogLevel {
-            Info,
-            Warning,
-            Error
-        };
-        using EngineModule::EngineModule;
-        void Init(void) override;
-        void Process(void) override;
-        void Shutdown(void) override;
+class Console : public EngineModule
+{
+public:
+    using EngineModule::EngineModule;
 
-        void Log(const std::string& message, LogLevel level);
-        
-        template<typename... Args>
-        void CreateCommand(const std::string& command, void(*func)(Args...))
-        {
-            commands[command] = [func](const std::vector<std::string>& args)
+    enum class LogLevel
+    {
+        Info,
+        Warning,
+        Error
+    };
+
+    void Init() override;
+    void Process() override;
+    void Shutdown() override;
+
+    void Log(const std::string& message, LogLevel level);
+
+    void ExecuteCommand(const std::string& command);
+    void DeleteCommand(const std::string& command);
+
+    void SetVisible(bool visible);
+
+    template<typename F>
+    void CreateCommand(const std::string& name, F&& func)
+    {
+        using Fn = std::decay_t<F>;
+        using traits = function_traits<Fn>;
+        using args_tuple = typename traits::args_tuple;
+
+        constexpr size_t N = std::tuple_size_v<args_tuple>;
+
+        commands[name] =
+            [func = std::forward<F>(func)]
+            (const std::vector<std::string>& args) mutable
             {
-                if (args.size() != sizeof...(Args))
+                if (args.size() != N)
                     throw std::runtime_error("Wrong number of arguments");
 
-                CallFunction(func, args, std::index_sequence_for<Args...>{});
+                invoke_from_strings<Fn, args_tuple>(
+                    func,
+                    args,
+                    std::make_index_sequence<N>{});
             };
-        }
-        void DeleteCommand(std::string command);
-        void ExecuteCommand(std::string command);
+    }
 
-        void SetVisible(bool visible);
+private:
+    struct LogEntry
+    {
+        std::string message;
+        LogLevel level;
+        std::chrono::system_clock::time_point time;
+    };
 
-    private:
-        struct LogEntry {
-            std::string message;
-            LogLevel level;
-            std::chrono::system_clock::time_point time;
-        };
-        template<typename T>
-        static T Convert(const std::string &s);
+    std::vector<LogEntry> messages;
 
-        template<typename... Args, size_t... I>
-        static void CallFunction(
-            void(*func)(Args...),
-            const std::vector<std::string>& args,
-            std::index_sequence<I...>)
-        {
-            func(Convert<Args>(args[I])...);
-        }
-        std::vector<LogEntry> messages;
+    std::unordered_map<
+        std::string,
+        std::function<void(const std::vector<std::string>&)>
+    > commands;
 
-        std::unordered_map<std::string, std::function<void(const std::vector<std::string>&)>> commands;
+    bool visible = true;
 
-        bool visible = true;
+private:
+    // ---------------- FUNCTION TRAITS ----------------
 
-        void help();
+    template<typename T>
+    struct function_traits;
+
+    template<typename R, typename... Args>
+    struct function_traits<R(*)(Args...)>
+    {
+        using args_tuple = std::tuple<Args...>;
+    };
+
+    template<typename R, typename... Args>
+    struct function_traits<std::function<R(Args...)>>
+    {
+        using args_tuple = std::tuple<Args...>;
+    };
+
+    template<typename C, typename R, typename... Args>
+    struct function_traits<R(C::*)(Args...) const>
+    {
+        using args_tuple = std::tuple<Args...>;
+    };
+
+    template<typename T>
+    struct function_traits : function_traits<decltype(&T::operator())> {};
+
+    // ---------------- CONVERSION ----------------
+
+    template<typename T>
+    static T Convert(const std::string& s);
+
+    // ---------------- INVOKE ----------------
+
+    template<typename Func, typename Tuple, size_t... I>
+    static void invoke_from_strings(
+        Func& func,
+        const std::vector<std::string>& args,
+        std::index_sequence<I...>)
+    {
+        func(Convert<std::tuple_element_t<I, Tuple>>(args[I])...);
+    }
+
+    void help();
 };

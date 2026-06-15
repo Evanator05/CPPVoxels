@@ -2,14 +2,14 @@
 #include "gui.h"
 #include "input.h"
 
-#include "stdio.h"
-
-#include <iomanip>
+#include <iostream>
 #include <sstream>
+#include <iomanip>
 
-static std::string FormatTime(const std::chrono::system_clock::time_point& tp) {
+static std::string FormatTime(const std::chrono::system_clock::time_point& tp)
+{
     std::time_t t = std::chrono::system_clock::to_time_t(tp);
-    std::tm tm;
+    std::tm tm{};
 
 #ifdef _WIN32
     localtime_s(&tm, &t);
@@ -22,26 +22,30 @@ static std::string FormatTime(const std::chrono::system_clock::time_point& tp) {
     return ss.str();
 }
 
-void Console::Init() {
-    Input &input = GetModule<Input>();
+// ---------------- LIFECYCLE ----------------
+
+void Console::Init()
+{
+    Input& input = GetModule<Input>();
     input.CreateAction("toggleconsole");
     input.CreateBinding("toggleconsole", SDLK_GRAVE);
-
 }
 
-void Console::Process() {
-    Input &input = GetModule<Input>();
-    if (input.IsPressed("toggleconsole")) {
+void Console::Process()
+{
+    Input& input = GetModule<Input>();
+
+    if (input.IsPressed("toggleconsole"))
         visible = !visible;
-    }
-    
-    if (!visible) return;
+
+    if (!visible)
+        return;
 
     ImGui::Begin("Console");
 
-    if (ImGui::Button("Clear")) {
+    if (ImGui::Button("Clear"))
         messages.clear();
-    }
+
     ImGui::SameLine();
 
     static bool autoScroll = true;
@@ -49,50 +53,58 @@ void Console::Process() {
 
     ImGui::Separator();
 
-    ImGui::BeginChild("ScrollRegion", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild(
+        "ScrollRegion",
+        ImVec2(0, -ImGui::GetFrameHeightWithSpacing()),
+        false,
+        ImGuiWindowFlags_HorizontalScrollbar);
 
-    if (ImGui::BeginTable("ConsoleTable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
+    if (ImGui::BeginTable("ConsoleTable", 3,
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable))
+    {
+        ImGui::TableSetupColumn("Time");
+        ImGui::TableSetupColumn("Level");
+        ImGui::TableSetupColumn("Message");
+        ImGui::TableHeadersRow();
 
-    ImGui::TableSetupColumn("Time");
-    ImGui::TableSetupColumn("Level");
-    ImGui::TableSetupColumn("Message");
-    ImGui::TableHeadersRow();
+        for (const auto& entry : messages)
+        {
+            ImGui::TableNextRow();
 
-    for (const LogEntry& entry : messages) {
-        ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(FormatTime(entry.time).c_str());
 
-        ImGui::TableSetColumnIndex(0);
-        ImGui::TextUnformatted(FormatTime(entry.time).c_str());
+            ImGui::TableSetColumnIndex(1);
+            switch (entry.level)
+            {
+                case LogLevel::Info:    ImGui::TextUnformatted("INFO"); break;
+                case LogLevel::Warning: ImGui::TextUnformatted("WARN"); break;
+                case LogLevel::Error:   ImGui::TextUnformatted("ERROR"); break;
+            }
 
-        ImGui::TableSetColumnIndex(1);
-        switch (entry.level) {
-            case LogLevel::Info:    ImGui::TextUnformatted("INFO"); break;
-            case LogLevel::Warning: ImGui::TextUnformatted("WARN"); break;
-            case LogLevel::Error:   ImGui::TextUnformatted("ERROR"); break;
+            ImGui::TableSetColumnIndex(2);
+
+            if (entry.level == LogLevel::Warning)
+                ImGui::TextColored({1.f, 0.8f, 0.2f, 1.f}, "%s", entry.message.c_str());
+            else if (entry.level == LogLevel::Error)
+                ImGui::TextColored({1.f, 0.3f, 0.3f, 1.f}, "%s", entry.message.c_str());
+            else
+                ImGui::TextUnformatted(entry.message.c_str());
         }
 
-        ImGui::TableSetColumnIndex(2);
-
-        if (entry.level == LogLevel::Warning)
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", entry.message.c_str());
-        else if (entry.level == LogLevel::Error)
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", entry.message.c_str());
-        else
-            ImGui::TextUnformatted(entry.message.c_str());
+        ImGui::EndTable();
     }
 
-    ImGui::EndTable();
-}
-
-    if (autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+    if (autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
         ImGui::SetScrollHereY(1.0f);
-    }
 
     ImGui::EndChild();
 
     ImGui::Separator();
 
-    static char inputBuf[512] = { 0 };
+    static char inputBuf[512] = {0};
 
     ImGui::Text("Command:");
     ImGui::SameLine();
@@ -103,15 +115,16 @@ void Console::Process() {
         "##cmd",
         inputBuf,
         IM_ARRAYSIZE(inputBuf),
-        ImGuiInputTextFlags_EnterReturnsTrue
-    );
+        ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PopItemWidth();
 
-    if (enterPressed) {
+    if (enterPressed)
+    {
         std::string cmd(inputBuf);
 
-        if (!cmd.empty()) {
+        if (!cmd.empty())
+        {
             Log("> " + cmd, LogLevel::Info);
             ExecuteCommand(cmd);
         }
@@ -122,11 +135,12 @@ void Console::Process() {
     ImGui::End();
 }
 
-void Console::Shutdown() {
+void Console::Shutdown() {}
 
-}
+// ---------------- LOGGING ----------------
 
-void Console::Log(const std::string& message, LogLevel level) {
+void Console::Log(const std::string& message, LogLevel level)
+{
     messages.push_back({
         message,
         level,
@@ -137,10 +151,14 @@ void Console::Log(const std::string& message, LogLevel level) {
         messages.erase(messages.begin());
 }
 
-void Console::DeleteCommand(std::string command)
+// ---------------- COMMAND SYSTEM ----------------
+
+void Console::DeleteCommand(const std::string& command)
 {
     commands.erase(command);
 }
+
+// ---------------- TOKENIZER ----------------
 
 static std::vector<std::string> TokenizeCommand(const std::string& input)
 {
@@ -155,7 +173,6 @@ static std::vector<std::string> TokenizeCommand(const std::string& input)
         if (c == '\\' && i + 1 < input.size())
         {
             char next = input[i + 1];
-
             if (next == '"' || next == '\\')
             {
                 current += next;
@@ -170,7 +187,7 @@ static std::vector<std::string> TokenizeCommand(const std::string& input)
             continue;
         }
 
-        if (!inQuotes && std::isspace(static_cast<unsigned char>(c)))
+        if (!inQuotes && std::isspace((unsigned char)c))
         {
             if (!current.empty())
             {
@@ -190,19 +207,17 @@ static std::vector<std::string> TokenizeCommand(const std::string& input)
     return tokens;
 }
 
-void Console::ExecuteCommand(std::string command)
+void Console::ExecuteCommand(const std::string& command)
 {
-    std::vector<std::string> tokens = TokenizeCommand(command);
-
+    auto tokens = TokenizeCommand(command);
     if (tokens.empty())
         return;
 
-    std::string name = tokens[0];
+    auto it = commands.find(tokens[0]);
 
-    auto it = commands.find(name);
     if (it == commands.end())
     {
-        Log("Unknown command, use help for more info: " + name, LogLevel::Error);
+        Log("Unknown command: " + tokens[0], LogLevel::Error);
         return;
     }
 
@@ -218,34 +233,21 @@ void Console::ExecuteCommand(std::string command)
     }
 }
 
-void Console::SetVisible(bool visible) {
-    this->visible = visible;
+void Console::SetVisible(bool v)
+{
+    visible = v;
 }
 
-void Console::help() {
-    Log("test", LogLevel::Info);
-    Log("test", LogLevel::Info);
-    Log("test", LogLevel::Info);
-    Log("test", LogLevel::Info);
-    Log("test", LogLevel::Info);
-}
+// ---------------- CONVERT ----------------
 
 template<>
-int Console::Convert<int>(const std::string &s) {
-    return std::stoi(s);
-}
+int Console::Convert<int>(const std::string& s) { return std::stoi(s); }
 
 template<>
-float Console::Convert<float>(const std::string &s) {
-    return std::stof(s);
-}
+float Console::Convert<float>(const std::string& s) { return std::stof(s); }
 
 template<>
-double Console::Convert<double>(const std::string &s) {
-    return std::stod(s);
-}
+double Console::Convert<double>(const std::string& s) { return std::stod(s); }
 
 template<>
-std::string Console::Convert<std::string>(const std::string &s) {
-    return s;
-}
+std::string Console::Convert<std::string>(const std::string& s) { return s; }

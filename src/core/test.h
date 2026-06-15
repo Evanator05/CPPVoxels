@@ -8,6 +8,7 @@ class Test : public EngineModule {
         using EngineModule::EngineModule;
         void Init(void) override;
         void Process(void) override;
+        void Print(std::string output);
     private:
 
 };

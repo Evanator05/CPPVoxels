@@ -5,10 +5,16 @@
 
 #include "stdio.h"
 
-
+void Test::Print(std::string output) {
+    Console &console = GetModule<Console>();
+    console.Log(output, Console::LogLevel::Info);
+}
 
 void Test::Init() {
     Console &console = GetModule<Console>();
+    console.CreateCommand("print", [this](std::string output){
+        (output);
+    });
 
 }
 
