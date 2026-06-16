@@ -40,7 +40,7 @@ vec3 skyColor(vec3 dir, vec3 pos, float time)
 
     float n1 = fnlGetNoise2D(noise, uv.x, uv.y);
     float n2 = fnlGetNoise2D(noise, uv.x*3.0, uv.y*3.0) * 0.4;
-    float n = n1 + n2*sin(time);
+    float n = n1 + n2*sin(time*0.1);
 
     n = n * 0.5 + 0.5;
 

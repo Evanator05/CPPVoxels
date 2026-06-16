@@ -379,8 +379,7 @@ void move_camera(double deltaTime) {
 
 int fps = 0;
 
-void draw_fps_debug(float fps, float frameTimeMs)
-{
+void draw_fps_debug(float fps, float frameTimeMs) {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
     ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
 
@@ -400,16 +399,22 @@ void draw_fps_debug(float fps, float frameTimeMs)
         idx = (idx + 1) % IM_ARRAYSIZE(fpsHistory);
 
         ImGui::PlotLines("##", fpsHistory, IM_ARRAYSIZE(fpsHistory), idx, nullptr, 0.0f, 30.0f, ImVec2(130, 50));
-
-        ImGui::Text("X: %02.2f", camera.position.x);
-        ImGui::Text("Y: %02.2f", camera.position.y);
-        ImGui::Text("Z: %02.2f", camera.position.z);
-
         ImGui::Text("Chunks: %u", chunkData.size());
     }
-    ImGui::SliderFloat("Speed", &MOVESPEED, 1, 1000, "%.1fv/s");
 
+    if (ImGui::CollapsingHeader("Camera Settings")) {
+        ImGui::SliderFloat("Speed", &MOVESPEED, 1, 1000, "%.1fv/s");
 
+        int fovDegrees = (int)glm::degrees(camera.fov);
+        if (ImGui::SliderInt("FOV", &fovDegrees, 1, 179)) {
+            camera.fov = glm::radians((float)fovDegrees);
+        }
+
+        ImGui::Text("Position");
+        ImGui::DragFloat("X", &camera.position.x);
+        ImGui::DragFloat("Y", &camera.position.y);
+        ImGui::DragFloat("Z", &camera.position.z);
+    }
     if (ImGui::CollapsingHeader("Brush Settings")) {
         ImGui::SliderInt("Radius", &radius, 1, 128);
         ImGui::SliderFloat("Distance", &distance, 1, 64);
@@ -474,7 +479,7 @@ void engine_update(double deltaTime) {
     }
 
     if (input_ispressed(SWAP_SCENE_1)) {
-        gen_caves();
+        //gen_caves();
         voxelData.dirty_all();
         gpubuffers_upload();
     }

@@ -82,7 +82,7 @@ typedef struct _RenderTextures {
     void cleanup() {
         for (int i = 0; i < Count; i++) {
             if (tex[i]) SDL_ReleaseGPUTexture(device, tex[i]);
-            tex[i] == nullptr;
+            tex[i] = nullptr;
         }
     }
 } RenderTextures;
@@ -99,7 +99,7 @@ typedef struct _ComputePipelines {
     void cleanup() {
         for (int i = 0; i < Count; i++) {
             if (pipelines[i]) SDL_ReleaseGPUComputePipeline(device, pipelines[i]);
-            pipelines[i] == nullptr;
+            pipelines[i] = nullptr;
         }
     }
 
@@ -122,7 +122,7 @@ void graphics_init() {
     SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
 
     // Uncomment to uncap framerate
-    //SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
+    SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
 }
 
 void graphics_cleanup() {
