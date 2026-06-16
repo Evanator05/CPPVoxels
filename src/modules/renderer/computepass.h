@@ -33,6 +33,7 @@ class ComputePass : ShaderPass {
         void Destroy(void) override;
         void Execute(SDL_GPUCommandBuffer* cmd) override;
 
+        // A lambda that returns the group invocation size
         std::function<glm::uvec3(const ComputePass&)> dispatchFunc;
 
         SDL_GPUComputePipeline* GetPipeline(void);

@@ -117,7 +117,11 @@ void Renderer::CreateComputePipeline() {
     display.dispatchFunc = [this](const ComputePass& pass) {
         Window &w = GetModule<Window>();
         glm::ivec2 size = w.GetSize();
-        return glm::uvec3(((size.x)+pass.threadcount.x-1)/pass.threadcount.x, ((size.y)+pass.threadcount.y-1)/pass.threadcount.y, 1);
+        return glm::uvec3(
+            ((size.x)+pass.threadcount.x-1)/pass.threadcount.x,
+            ((size.y)+pass.threadcount.y-1)/pass.threadcount.y,
+            1
+        );
     };
     display.Create();
     computePassOrder.push_back(&display);
