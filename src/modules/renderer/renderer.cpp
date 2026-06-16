@@ -52,13 +52,14 @@ void Renderer::Process() {
 
     // copy image into swaptexture
     if (swapTex) {
-        SDL_GPUTextureLocation sourceLoc{};
-        sourceLoc.texture = displayTextures.at("display").GetGPUTexture();
-        SDL_GPUTextureLocation destLoc{};
-        destLoc.texture = swapTex;
-        SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(cmd);
-        SDL_CopyGPUTextureToTexture(copyPass, &sourceLoc, &destLoc, sw, sh, 1, false);
-        SDL_EndGPUCopyPass(copyPass);
+        SDL_GPUBlitInfo blt{};
+        blt.source.texture = displayTextures.at("display").GetGPUTexture();
+        blt.source.w = sw;
+        blt.source.h = sh;
+        blt.destination.texture = swapTex;
+        blt.destination.w = sw;
+        blt.destination.h = sh;
+        SDL_BlitGPUTexture(cmd, &blt);
     }
 
     // render gui
@@ -92,7 +93,9 @@ void Renderer::Shutdown() {
 }
 
 void Renderer::CreateDisplayTextures() {
-    glm::ivec2 size = GetModule<Window>().GetSize();
+    Window &window = GetModule<Window>();
+
+    glm::ivec2 size = window.GetSize();
     Texture& display = displayTextures.try_emplace(
         "display",
         device,

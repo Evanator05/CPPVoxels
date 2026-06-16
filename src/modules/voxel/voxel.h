@@ -23,6 +23,8 @@ struct Voxel {
     }
 };
 
+static constexpr Voxel VOXEL_EMPTY = Voxel{};
+
 struct Chunk {
     glm::ivec3 position{}; // the position in chunk space of this chunk
     uint32_t flags; // flags about the chunk

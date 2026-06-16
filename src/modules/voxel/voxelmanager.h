@@ -17,23 +17,23 @@ class VoxelManager : public EngineModule {
         void Shutdown(void) override;
 
         uint32_t AllocateChunk(glm::ivec3 position);
-        uint32_t FreeChunk(uint32_t index);
+        void FreeChunk(uint32_t index);
 
         uint32_t GetChunkIndex(glm::ivec3 position);
         
         Chunk *GetChunkFromIndex(uint32_t index);
     
+        void SetVoxel(ChunkData *chunk, glm::uvec3 position, Voxel voxel);
+        Voxel GetVoxel(const ChunkData *chunk, glm::uvec3 position);
+
         void GenerateChunkOccupancyMap(void);
 
+        size_t GetChunkDataAllocatedBytes(void) const; // returns allocated data byte count
+
+
     private:
-        struct Allocation {
-            uint32_t position;
-            uint32_t size;
-        };
-
-        ChunkData *chunk_data = NULL;
+        std::vector<ChunkData> chunk_data{};
         std::vector<Chunk> allocated_chunks{};
-        std::vector<Allocation> free_allocations{};
+        std::vector<uint32_t> free_spots{};
         ChunkPositions chunk_occupancy{};
-
 };

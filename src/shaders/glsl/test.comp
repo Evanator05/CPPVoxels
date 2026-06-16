@@ -230,7 +230,7 @@ void main()
 
         if(material == 3)
         {
-            color += vec3(0.2, 0.8, 2.0);
+            color += vec3(1.0, 0.2, 0.2);
         }
 
         vec3 h =
