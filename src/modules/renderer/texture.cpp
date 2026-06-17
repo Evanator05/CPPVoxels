@@ -2,22 +2,18 @@
 
 #include <stdexcept>
 
-Texture::Texture(SDL_GPUDevice *device) {
-    this->device = device;
-}
-
-Texture::Texture(SDL_GPUDevice *device, glm::ivec2 size, SDL_GPUTextureUsageFlags usage, SDL_GPUTextureFormat format) : Texture(device) {
+Texture::Texture(SDL_GPUDevice *device, glm::ivec2 size, SDL_GPUTextureUsageFlags usage, SDL_GPUTextureFormat format) : Resource(device) {
     this->size = size;
     this->usage = usage;
     this->format = format;
 }
 
 Texture::~Texture() {
-    DestroyTexture();
+    Destroy();
 }
 
-void Texture::CreateTexture() {
-    DestroyTexture();
+void Texture::Create() {
+    Destroy();
     SDL_GPUTextureCreateInfo createInfo{};
     createInfo.width = (Uint32)size.x;
     createInfo.height = (Uint32)size.y;
@@ -26,16 +22,16 @@ void Texture::CreateTexture() {
     createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
     createInfo.format = format;
     createInfo.usage = usage;
-    texture = SDL_CreateGPUTexture(device, &createInfo);
-    if (!texture) throw std::runtime_error(SDL_GetError());
+    gpu_resource = SDL_CreateGPUTexture(device, &createInfo);
+    if (!gpu_resource) throw std::runtime_error(SDL_GetError());
 }
 
-void Texture::DestroyTexture() {
-    if (!texture) return;
-    SDL_ReleaseGPUTexture(device, texture);
-    texture = nullptr;
+void Texture::Destroy() {
+    if (!gpu_resource) return;
+    SDL_ReleaseGPUTexture(device, gpu_resource);
+    gpu_resource = nullptr;
 }
 
-SDL_GPUTexture* Texture::GetGPUTexture() {
-    return texture;
+SDL_GPUTexture* Texture::GetGPU() {
+    return gpu_resource;
 }

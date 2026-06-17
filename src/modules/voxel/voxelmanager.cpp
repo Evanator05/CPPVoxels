@@ -50,8 +50,7 @@ void VoxelManager::FreeChunk(const uint32_t index) {
 
 uint32_t VoxelManager::GetChunkIndex(const glm::ivec3 position) {
     glm::ivec3 maxBound = chunk_occupancy.position + glm::ivec3(chunk_occupancy.size);
-    if (glm::any(glm::lessThan(position, chunk_occupancy.position)) ||
-        glm::any(glm::greaterThanEqual(position, maxBound))) {
+    if (glm::any(glm::lessThan(position, chunk_occupancy.position) || glm::greaterThanEqual(position, maxBound))) {
         return UINT32_MAX;
     }
 

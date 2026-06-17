@@ -53,7 +53,7 @@ void Renderer::Process() {
     // copy image into swaptexture
     if (swapTex) {
         SDL_GPUBlitInfo blt{};
-        blt.source.texture = displayTextures.at("display").GetGPUTexture();
+        blt.source.texture = displayTextures.at("display").GetGPU();
         blt.source.w = sw;
         blt.source.h = sh;
         blt.destination.texture = swapTex;
@@ -82,7 +82,7 @@ void Renderer::Process() {
 
 void Renderer::Shutdown() {
     for (Texture *texture : displayTextureOrder) {
-        texture->DestroyTexture();
+        texture->Destroy();
     }
     for (ComputePass *pass : computePassOrder) {
         pass->Destroy();
@@ -102,13 +102,13 @@ void Renderer::CreateDisplayTextures() {
         size, 
         SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER,
         SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM).first->second;
-    display.CreateTexture();
+    display.Create();
     displayTextureOrder.push_back(&display);
 }
 
 void Renderer::UpdateDisplayTextures(glm::ivec2 size) {
     displayTextures.at("display").size = size;
-    displayTextures.at("display").CreateTexture();
+    displayTextures.at("display").Create();
 }
 
 void Renderer::CreateComputePipeline() {
