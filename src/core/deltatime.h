@@ -22,5 +22,5 @@ class DeltaTime : public EngineModule {
         double deltatime = 0.0;
         double frequency = 0.0;
         double timescale = 1.0;
-        double maxfps = 60.0;
+        double maxfps = 165.0;
 };

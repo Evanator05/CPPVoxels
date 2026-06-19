@@ -1,6 +1,7 @@
 #include "console.h"
 #include "gui.h"
 #include "input.h"
+#include "deltatime.h"
 
 #include <iostream>
 #include <sstream>
@@ -29,6 +30,10 @@ void Console::Init()
     Input& input = GetModule<Input>();
     input.CreateAction("toggleconsole");
     input.CreateBinding("toggleconsole", SDLK_GRAVE);
+
+    CreateCommand("getfps", [this](){
+        Log(std::to_string(1/GetModule<DeltaTime>().Get()) + " FPS", LogLevel::Info);
+    });
 }
 
 void Console::Process()
@@ -137,10 +142,7 @@ void Console::Process()
 
 void Console::Shutdown() {}
 
-// ---------------- LOGGING ----------------
-
-void Console::Log(const std::string& message, LogLevel level)
-{
+void Console::Log(const std::string& message, LogLevel level) {
     messages.push_back({
         message,
         level,
@@ -151,17 +153,11 @@ void Console::Log(const std::string& message, LogLevel level)
         messages.erase(messages.begin());
 }
 
-// ---------------- COMMAND SYSTEM ----------------
-
-void Console::DeleteCommand(const std::string& command)
-{
+void Console::DeleteCommand(const std::string& command) {
     commands.erase(command);
 }
 
-// ---------------- TOKENIZER ----------------
-
-static std::vector<std::string> TokenizeCommand(const std::string& input)
-{
+static std::vector<std::string> TokenizeCommand(const std::string& input) {
     std::vector<std::string> tokens;
     std::string current;
     bool inQuotes = false;
@@ -207,8 +203,7 @@ static std::vector<std::string> TokenizeCommand(const std::string& input)
     return tokens;
 }
 
-void Console::ExecuteCommand(const std::string& command)
-{
+void Console::ExecuteCommand(const std::string& command) {
     auto tokens = TokenizeCommand(command);
     if (tokens.empty())
         return;
@@ -233,12 +228,9 @@ void Console::ExecuteCommand(const std::string& command)
     }
 }
 
-void Console::SetVisible(bool v)
-{
+void Console::SetVisible(bool v) {
     visible = v;
 }
-
-// ---------------- CONVERT ----------------
 
 template<>
 int Console::Convert<int>(const std::string& s) { return std::stoi(s); }

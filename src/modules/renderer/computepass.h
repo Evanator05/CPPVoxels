@@ -8,9 +8,6 @@
 #include "stdint.h"
 #include "glm/vec3.hpp"
 
-#include "SDL3/SDL.h"
-#include "SDL3/SDL_gpu.h"
-
 #include "modules/renderer/texture.h"
 #include "modules/renderer/buffer.h"
 #include "modules/renderer/sampler.h"

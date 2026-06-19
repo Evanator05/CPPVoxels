@@ -16,9 +16,7 @@ void Buffer::Create() {
 }
 
 void Buffer::Destroy() {
-    if (gpu_resource) {
-        SDL_ReleaseGPUBuffer(device, gpu_resource);
-    } 
+    if (gpu_resource) SDL_ReleaseGPUBuffer(device, gpu_resource);
 }
 
 void Buffer::Upload(SDL_GPUCopyPass *pass, void *source, size_t cpu_start, size_t gpu_start, size_t size) {
@@ -28,8 +26,8 @@ void Buffer::Upload(SDL_GPUCopyPass *pass, void *source, size_t cpu_start, size_
     tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     SDL_GPUTransferBuffer *transferBuffer = SDL_CreateGPUTransferBuffer(device, &tbci);
 
-    void *mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
-    memcpy(mapped+gpu_start, source+cpu_start, size);
+    uint8_t *mapped = (uint8_t*)SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+    memcpy(mapped+gpu_start, (uint8_t*)source+cpu_start, size);
     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
     SDL_GPUTransferBufferLocation *tsource{};
@@ -62,8 +60,8 @@ void Buffer::Download(SDL_GPUCopyPass *pass, void *dest, size_t cpu_start, size_
 
     SDL_DownloadFromGPUBuffer(pass, tsource, tdestination);
 
-    void *mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
-    memcpy(dest+cpu_start, mapped, size);
+    uint8_t *mapped = (uint8_t*)SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+    memcpy((uint8_t*)dest+cpu_start, mapped, size);
     SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 }
 

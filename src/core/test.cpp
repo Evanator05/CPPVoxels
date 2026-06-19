@@ -17,17 +17,17 @@ void Test::Init() {
     });
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    vm.AllocateChunk(glm::ivec3(1, 0, 0));
-    vm.AllocateChunk(glm::ivec3(2, 0, 0));
-    vm.AllocateChunk(glm::ivec3(7, 4, 0));
-    vm.AllocateChunk(glm::ivec3(3, 0, 0));
-    vm.AllocateChunk(glm::ivec3(4, 0, 0));
-    vm.FreeChunk(2);
-    vm.AllocateChunk(glm::ivec3(7, 4, 0));
-    vm.GenerateChunkOccupancyMap();
-    console.Log(std::to_string(vm.GetChunkDataAllocatedBytes()), Console::LogLevel::Info);
-    console.Log(std::to_string(vm.GetChunkIndex(glm::ivec3(7, 4, 0))), Console::LogLevel::Info);
-    console.Log(std::to_string(vm.GetChunkFromIndex(vm.GetChunkIndex(glm::ivec3(7, 4, 0)))->chunk_data_index), Console::LogLevel::Info);
+    // vm.AllocateChunk(glm::ivec3(1, 0, 0));
+    // vm.AllocateChunk(glm::ivec3(2, 0, 0));
+    // vm.AllocateChunk(glm::ivec3(7, 4, 0));
+    // vm.AllocateChunk(glm::ivec3(3, 0, 0));
+    // vm.AllocateChunk(glm::ivec3(4, 0, 0));
+    // vm.FreeChunk(2);
+    // vm.AllocateChunk(glm::ivec3(7, 4, 0));
+    //vm.GenerateChunkOccupancyMap();
+    //console.Log(std::to_string(vm.GetChunkDataAllocatedBytes()), Console::LogLevel::Info);
+    //console.Log(std::to_string(vm.GetChunkIndex(glm::ivec3(7, 4, 0))), Console::LogLevel::Info);
+    //console.Log(std::to_string(vm.GetChunkFromIndex(vm.GetChunkIndex(glm::ivec3(7, 4, 0)))->chunk_data_index), Console::LogLevel::Info);
 }
 
 void Test::Process() {

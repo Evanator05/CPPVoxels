@@ -1,6 +1,8 @@
+#pragma once
+
 #include "resource.h"
 
-#include "modules/renderer/texture.h"
+#include "texture.h"
 
 class Sampler : Resource<SDL_GPUSampler>  {
     public:
