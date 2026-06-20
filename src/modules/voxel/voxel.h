@@ -23,19 +23,23 @@ struct Voxel {
         if (v) data |= 0x8000;
         else data &= ~0x8000;
     }
+
+    std::string to_string() {
+        return std::to_string(r()) + "R " + std::to_string(g()) + "G " + std::to_string(b()) + "B";
+    }
 };
 
 static constexpr Voxel VOXEL_EMPTY = Voxel{};
 
 struct Chunk {
     glm::ivec3 position{}; // the position in chunk space of this chunk
-    uint32_t flags; // flags about the chunk
-    uint32_t chunk_data_index; // index to base contree node
+    uint32_t flags = 0; // flags about the chunk
+    uint32_t chunk_data_index = UINT32_MAX; // index to base contree node
 };
 
 struct ContreeNode {
-    uint64_t isVoxelMask = 0; // bit mask stating if childNode is voxel data or child pointer
-    uint32_t childNodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH]; // pointers to child nodes
+    uint64_t isVoxelMask = UINT64_MAX; // bit mask stating if childNode is voxel data or child pointer
+    uint32_t childNodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH]{}; // pointers to child nodes
 
     uint8_t GetIndex(glm::uvec3 position) {
         return position.x + position.y * CONTREE_NODE_WIDTH + position.z * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH;
@@ -51,8 +55,9 @@ struct ContreeNode {
 
     void SetValue(uint8_t index, bool isVoxel, uint32_t value) {
         childNodes[index] = value;
-        if (isVoxel) isVoxelMask |= 1ULL << index;
-        else isVoxelMask &= ~(1ULL<<index);
+        uint64_t bit = 1ULL << index;
+        if (isVoxel) isVoxelMask |= bit;
+        else isVoxelMask &= ~bit;
     }
 };
 

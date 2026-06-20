@@ -142,7 +142,7 @@ void Console::Process()
 
 void Console::Shutdown() {}
 
-void Console::Log(const std::string& message, LogLevel level) {
+void Console::Log(const std::string& message, LogLevel level = Console::LogLevel::Info) {
     messages.push_back({
         message,
         level,

@@ -25,6 +25,7 @@ class VoxelManager : public EngineModule {
         uint32_t GetChunkIndex(glm::ivec3 position);
         
         Chunk *GetChunkFromIndex(uint32_t index);
+        ContreeNode *GetNodeFromIndex(uint32_t index);
 
         glm::ivec3 GetChunkPosition(glm::ivec3 world_position);
 
@@ -35,12 +36,13 @@ class VoxelManager : public EngineModule {
         void SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel);
         Voxel GetVoxel(const Chunk *chunk, glm::uvec3 position);
 
-        void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position);
+        void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
 
         void GenerateChunkOccupancyMap(void);
         
         size_t GetChunkDataAllocatedBytes(void) const; // returns allocated data byte count
 
+        std::string DumpContreeGraph(uint32_t rootIndex);
 
     private:
         std::vector<ContreeNode> contree_data{};
