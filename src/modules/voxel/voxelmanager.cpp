@@ -18,7 +18,7 @@ void VoxelManager::Shutdown() {
     allocated_chunks.reserve(0);
 }
 
-uint32_t VoxelManager::AllocateContreeNode(void) {
+uint32_t VoxelManager::AllocateContreeNode() {
     uint32_t data_index;
     if (free_contree_indicies.empty()) {
         contree_data.push_back({});
@@ -28,7 +28,7 @@ uint32_t VoxelManager::AllocateContreeNode(void) {
         free_contree_indicies.pop_back();
     }
     contree_data[data_index] = {};
-    contree_data[data_index].isVoxelMask = (uint64_t)(-1ULL); // default to all empty voxels
+    contree_data[data_index].isVoxelMask = CONTREE_VOXEL_MASK_FULL; // default to all empty voxels
     return data_index;
 }
 
@@ -42,14 +42,14 @@ void VoxelManager::FreeContreeNode(uint32_t rootIndex) {
 
         ContreeNode &node = contree_data[index];
 
-        if (node.isVoxelMask != (uint64_t)(-1ULL)) {
+        if (node.isVoxelMask != CONTREE_VOXEL_MASK_FULL) {
             for (size_t i = 0; i < CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH; i++) {
                 if (node.IsVoxel(i)) continue;
                 stack.push_back(node.GetChildValue(i));
             }
         }
 
-        node.isVoxelMask = (uint64_t)(-1ULL);
+        node.isVoxelMask = CONTREE_VOXEL_MASK_FULL;
         free_contree_indicies.push_back(index);
     }
 }
@@ -127,12 +127,30 @@ Voxel VoxelManager::GetVoxel(glm::ivec3 world_position) {
 }
 
 void VoxelManager::SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel) {
+    
+    struct NodeStack {
+        uint32_t node_index;
+        uint8_t child_index;
+    };
+    NodeStack node_stack[CONTREE_MAX_DEPTH]{};
+    uint8_t node_stack_position = 0;
+    auto node_stack_push = [&node_stack, &node_stack_position](NodeStack value) {
+        assert(node_stack_position < CONTREE_MAX_DEPTH);
+        node_stack[node_stack_position++] = value;
+    };
+    auto node_stack_pop = [&node_stack, &node_stack_position]() -> NodeStack {
+        assert(node_stack_position > 0);
+        return node_stack[--node_stack_position];
+    };
+
     uint32_t node_index = chunk->chunk_data_index;
     ContreeNode *node = GetNodeFromIndex(node_index);
     
     glm::uvec3 chunk_width = glm::uvec3(CHUNK_WIDTH);
 
-    for (uint8_t depth; depth < CONTREE_MAX_DEPTH - 1; depth++) {
+    node_stack_push({node_index, 0});
+
+    for (uint8_t depth = 0; depth < CONTREE_MAX_DEPTH - 1; depth++) { // depth - 1 because we dont need to allocate/check on the last layer we just want to set a voxel in it
         chunk_width /= CONTREE_NODE_WIDTH;
 
         glm::uvec3 node_position = (position / chunk_width);
@@ -142,13 +160,15 @@ void VoxelManager::SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel) {
         bool child_node_is_voxel = node->IsVoxel(child_node_index);
         uint32_t child_node_data = node->GetChildValue(child_node_index);
         uint32_t new_node_data = child_node_data;
+
         if (child_node_is_voxel) {
+            if (child_node_data == voxel.data) return;
+
             uint32_t new_node_index = AllocateContreeNode();
             node = GetNodeFromIndex(node_index); // regather node from its index because allocating new nodes can leave the pointer dangling
             node->SetValue(child_node_index, false, new_node_index);
             
             ContreeNode *new_node = GetNodeFromIndex(new_node_index);
-            
             for (uint8_t i = 0; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
                 new_node->SetValue(i, true, child_node_data); // fill new node with voxel data from parent
             }
@@ -156,11 +176,29 @@ void VoxelManager::SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel) {
         }
 
         node_index = new_node_data;
+        node_stack_push({node_index, child_node_index});
         node = GetNodeFromIndex(node_index);
     }
 
     uint8_t child_node_index = node->GetIndex(position);
     node->SetValue(child_node_index, true, voxel.data);
+
+    // merge uniform node regions
+    while (node_stack_position > 1) {
+        NodeStack current = node_stack_pop();
+        ContreeNode* current_node = GetNodeFromIndex(current.node_index);
+
+        if (!current_node->IsUniform())
+            break;
+
+        uint32_t voxel_value = current_node->GetChildValue(0);
+        FreeContreeNode(current.node_index);
+
+        NodeStack parent = node_stack[node_stack_position - 1];
+        ContreeNode* parent_node = GetNodeFromIndex(parent.node_index);
+
+        parent_node->SetValue(current.child_index, true, voxel_value);
+    }
 }
 
 Voxel VoxelManager::GetVoxel(const Chunk *chunk, glm::uvec3 position) {
@@ -176,7 +214,7 @@ Voxel VoxelManager::GetVoxel(const Chunk *chunk, glm::uvec3 position) {
         bool child_node_is_voxel = node->IsVoxel(child_node_index);
         uint32_t child_node_data = node->GetChildValue(child_node_index);
         if (child_node_is_voxel) {
-            return (Voxel)child_node_data;
+            return static_cast<Voxel>(child_node_data);
         }
         node = GetNodeFromIndex(child_node_data);
     }
@@ -192,15 +230,20 @@ void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position
     chunk_start = GetChunkPosition(start_position);
     chunk_end = GetChunkPosition(end_position);
 
-    // loop through all affected chunks
-    // loop through each node and check if its
-    // convert node bounds to world positions
-    //  A) No Coverage
-    //  B) Full Coverage
-    //  C) Partial Coverage
-    // I can skip nodes in A
-    // I can set the entire leaf to my value in B
-    // I need to allocate a new child node and try again in C
+    for (uint32_t x = start_position.x; x < end_position.x; ++x) {
+        for (uint32_t y = start_position.y; y < end_position.y; ++y) {
+            for (uint32_t z = start_position.z; z < end_position.z; ++z) {
+                Chunk *c = GetChunkFromIndex(GetChunkIndex(glm::ivec3(x, y, z)));
+                // if no coverage skip the node
+
+                // go though node tree and determine if node has full coverage
+                // if it does then make the entire leaf of the node that voxel
+
+                // if not determine if the node has partial coverage
+                // if it does then go down or allocate another level deeper and repeat
+            }
+        }
+    }
 }
 
 void VoxelManager::GenerateChunkOccupancyMap() {
@@ -303,10 +346,10 @@ static void DumpNode(
             if (!v.solid())
                 ss << "VOXEL empty\n";
             else
-                ss << "VOXEL " << value << "\n";
+                ss << "VOXEL " << v.to_string() << "\n";
         } else {
             ss << "NODE -> " << value << "\n";
-            DumpNode(nodes, value, depth + 2, ss, visited);
+            DumpNode(nodes, value, depth + 1, ss, visited);
         }
     }
 }

@@ -21,113 +21,44 @@ void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
 void Renderer::Init() {
     Window &window = GetModule<Window>();
 
-    window.ResizedScreen.Bind(
-        [this](glm::ivec2 size) {
-            UpdateDisplayTextures(size);
-        }
-    );
-
-    glm::ivec2 size = window.GetSize();
+    // window.ResizedScreen.Bind(
+    //     [this](glm::ivec2 size) {
+    //         UpdateDisplayTextures(size);
+    //     }
+    // );
+    //glm::ivec2 size = window.GetSize();
 
     InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
     SetVSync(true); // setting to false uncaps framerate
-    
-    CreateDisplayTextures();
-    CreateComputePipeline();
 }
 
 void Renderer::Process() {
     Window &window = GetModule<Window>();
     glm::ivec2 size = window.GetSize();
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
-    for (ComputePass *pass : computePassOrder) {
-        pass->Execute(cmd);
-    }
 
     SDL_GPUTexture *swapTex = nullptr;
     Uint32 sw = 0, sh = 0;
     SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window.GetWindow(), &swapTex, &sw, &sh);
+    swapchainTexture.CreateFrom(swapTex, glm::ivec2(sw, sh), 0, SDL_GetGPUSwapchainTextureFormat(device, window.GetWindow()));
 
-    // copy image into swaptexture
-    if (swapTex) {
-        SDL_GPUBlitInfo blt{};
-        blt.source.texture = displayTextures.at("display").GetGPU();
-        blt.source.w = sw;
-        blt.source.h = sh;
-        blt.destination.texture = swapTex;
-        blt.destination.w = sw;
-        blt.destination.h = sh;
-        SDL_BlitGPUTexture(cmd, &blt);
-    }
-
-    // render gui
-    {
-        SDL_GPUColorTargetInfo color{};
-        color.texture = swapTex;
-        color.load_op  = SDL_GPU_LOADOP_LOAD;
-        color.store_op = SDL_GPU_STOREOP_STORE;
-
-        ImGui::Render();
-        ImGui_ImplSDLGPU3_PrepareDrawData(ImGui::GetDrawData(), cmd);
-        SDL_GPURenderPass *rpass = SDL_BeginGPURenderPass(cmd, &color, 1, nullptr);
-
-        GetModule<GUI>().Render(cmd, rpass);
-        SDL_EndGPURenderPass(rpass);
+    for (ShaderPass *pass : shaderPassOrder) {
+        pass->Execute(cmd);
     }
 
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 
 void Renderer::Shutdown() {
-    for (Texture *texture : displayTextureOrder) {
-        texture->Destroy();
-    }
-    for (ComputePass *pass : computePassOrder) {
+    for (ShaderPass *pass : shaderPasses) {
         pass->Destroy();
     }
-
+    for (Texture *texture : textures) {
+        texture->Destroy();
+    }
     if (device) SDL_DestroyGPUDevice(device);
-
-}
-
-void Renderer::CreateDisplayTextures() {
-    Window &window = GetModule<Window>();
-
-    glm::ivec2 size = window.GetSize();
-    Texture& display = displayTextures.try_emplace(
-        "display",
-        device,
-        size, 
-        SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER,
-        SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM).first->second;
-    display.Create();
-    displayTextureOrder.push_back(&display);
-}
-
-void Renderer::UpdateDisplayTextures(glm::ivec2 size) {
-    displayTextures.at("display").size = size;
-    displayTextures.at("display").Create();
-}
-
-void Renderer::CreateComputePipeline() {
-    ComputePass& display = computePasses.try_emplace("display", device).first->second;
-    display.threadcount = {16, 16, 1};
-    display.spirv = test_spirv;
-    display.spirv_size = std::size(test_spirv);
-    display.readwrite_storage_textures.push_back(&displayTextures.at("display"));
-    display.dispatchFunc = [this](const ComputePass& pass) {
-        Window &w = GetModule<Window>();
-        glm::ivec2 size = w.GetSize();
-        return glm::uvec3(
-            ((size.x)+pass.threadcount.x-1)/pass.threadcount.x,
-            ((size.y)+pass.threadcount.y-1)/pass.threadcount.y,
-            1
-        );
-    };
-    display.Create();
-    computePassOrder.push_back(&display);
 }
 
 void Renderer::SetVSync(bool enable) {

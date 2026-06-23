@@ -6,8 +6,6 @@ Buffer::~Buffer() {
 
 void Buffer::Create() {
     Destroy();
-
-    // create buffer
     SDL_GPUBufferCreateInfo bci{};
     bci.size = size;
     bci.props = 0;
@@ -20,7 +18,6 @@ void Buffer::Destroy() {
 }
 
 void Buffer::Upload(SDL_GPUCopyPass *pass, void *source, size_t cpu_start, size_t gpu_start, size_t size) {
-    
     SDL_GPUTransferBufferCreateInfo tbci{};
     tbci.size = size;
     tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;

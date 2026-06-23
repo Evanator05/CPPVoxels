@@ -36,6 +36,10 @@ void GUI::PreProcess() {
     ImGui::NewFrame();
 }
 
+void GUI::PostProcess() {
+    ImGui::EndFrame();
+}
+
 void GUI::Shutdown() {
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();

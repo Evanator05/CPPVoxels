@@ -12,8 +12,19 @@ Texture::~Texture() {
     Destroy();
 }
 
+void Texture::CreateFrom(SDL_GPUTexture *texture, glm::ivec2 size, SDL_GPUTextureUsageFlags usage, SDL_GPUTextureFormat format) {
+    Destroy();
+    owned = false;
+    gpu_resource = texture;
+    this->size = size;
+    this->usage = usage;
+    this->format = format;
+    
+}
+
 void Texture::Create() {
     Destroy();
+    owned = true;
     SDL_GPUTextureCreateInfo createInfo{};
     createInfo.width = (Uint32)size.x;
     createInfo.height = (Uint32)size.y;
@@ -27,6 +38,7 @@ void Texture::Create() {
 }
 
 void Texture::Destroy() {
+    if (!owned) return;
     if (!gpu_resource) return;
     SDL_ReleaseGPUTexture(device, gpu_resource);
     gpu_resource = nullptr;

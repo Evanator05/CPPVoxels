@@ -34,6 +34,9 @@ void Console::Init()
     CreateCommand("getfps", [this](){
         Log(std::to_string(1/GetModule<DeltaTime>().Get()) + " FPS", LogLevel::Info);
     });
+    CreateCommand("clear", [this](){
+        messages.clear();
+    });
 }
 
 void Console::Process()

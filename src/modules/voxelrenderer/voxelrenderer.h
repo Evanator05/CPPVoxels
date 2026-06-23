@@ -1,6 +1,9 @@
 #pragma once
 
 #include "engine.h"
+#include "modules/renderer/renderer.h"
+
+#include <unordered_map>
 
 class VoxelRenderer : public EngineModule {
     public:
@@ -9,4 +12,6 @@ class VoxelRenderer : public EngineModule {
         void Process(void) override;
         void Shutdown(void) override;
     private:
+        SDL_GPUDevice *device = nullptr;
+        Texture *display = nullptr;
 };

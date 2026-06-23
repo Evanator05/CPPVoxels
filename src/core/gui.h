@@ -13,6 +13,7 @@ class GUI : public EngineModule {
         using EngineModule::EngineModule;
         void Init(void) override;
         void PreProcess(void) override;
+        void PostProcess(void) override;
         void Shutdown(void) override;
 
         void ProcessEvent(SDL_Event *event);

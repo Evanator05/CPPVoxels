@@ -18,18 +18,34 @@ class Renderer : public EngineModule {
         void Process(void) override;
         void Shutdown(void) override;
 
-        void CreateDisplayTextures(void);
-        void UpdateDisplayTextures(glm::ivec2 size);
-
-        void CreateComputePipeline(void);
-
         void SetVSync(bool enable);
 
         SDL_GPUDevice* GetDevice();
+
+        template <typename T>
+        T* CreateShaderPass() {
+            static_assert(std::is_base_of_v<ShaderPass, T>);
+            T *pass = new T(device);
+            shaderPasses.push_back(pass);
+            return pass;
+        }
+        Texture* CreateTexture() {
+            Texture *texture = new Texture(device);
+            textures.push_back(texture);
+            return texture;
+        }
+        Buffer* CreateBuffer() {
+            Buffer *buffer = new Buffer(device);
+            buffers.push_back(buffer);
+            return buffer;
+        }
+
+        std::vector<ShaderPass*> shaderPasses;
+        std::vector<Texture*> textures;
+        std::vector<Buffer*> buffers;
+        std::vector<ShaderPass*> shaderPassOrder;
+
+        Texture swapchainTexture{device};
     private:
-        SDL_GPUDevice* device = nullptr;
-        std::unordered_map<std::string, ComputePass> computePasses;
-        std::vector<ComputePass*> computePassOrder;
-        std::unordered_map<std::string, Texture> displayTextures;
-        std::vector<Texture*> displayTextureOrder;
+        SDL_GPUDevice* device = nullptr; 
 };

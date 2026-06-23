@@ -2,12 +2,13 @@
 
 static constexpr uint8_t CONTREE_NODE_WIDTH = 4;
 static constexpr uint8_t CONTREE_MAX_DEPTH = 5;
+static constexpr uint64_t CONTREE_VOXEL_MASK_FULL = UINT64_MAX;
 static constexpr uint16_t CHUNK_WIDTH = 1024; // CONTREE_NODE_WIDTH^CONTREE_MAX_DEPTH
 static constexpr uint32_t CHUNK_FLAG_EXISTS = 0b00000000000000000000000000000001;
 static constexpr uint32_t CHUNK_FLAG_DIRTY  = 0b00000000000000000000000000000010;
 static constexpr uint32_t POINTER_EMPTY = UINT32_MAX;
 struct Voxel {
-    uint16_t data = 0;
+    uint32_t data = 0;
 
     uint8_t r() const { return data & 0x1F; }
     uint8_t g() const { return (data >> 5) & 0x1F; }
@@ -38,7 +39,7 @@ struct Chunk {
 };
 
 struct ContreeNode {
-    uint64_t isVoxelMask = UINT64_MAX; // bit mask stating if childNode is voxel data or child pointer
+    uint64_t isVoxelMask = CONTREE_VOXEL_MASK_FULL; // bit mask stating if childNode is voxel data or child pointer
     uint32_t childNodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH]{}; // pointers to child nodes
 
     uint8_t GetIndex(glm::uvec3 position) {
@@ -58,6 +59,16 @@ struct ContreeNode {
         uint64_t bit = 1ULL << index;
         if (isVoxel) isVoxelMask |= bit;
         else isVoxelMask &= ~bit;
+    }
+
+    bool IsUniform() {
+        uint32_t value = childNodes[0];
+        if (!IsVoxel(0)) return false;
+        for (uint8_t i = 1; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
+            if (GetChildValue(i) != value || !IsVoxel(i))
+                return false;
+        }
+        return true;
     }
 };
 

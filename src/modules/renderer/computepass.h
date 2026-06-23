@@ -12,7 +12,7 @@
 #include "modules/renderer/buffer.h"
 #include "modules/renderer/sampler.h"
 
-class ComputePass : ShaderPass {
+class ComputePass : public ShaderPass {
     public:
         using ShaderPass::ShaderPass;
         
