@@ -21,13 +21,6 @@ void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
 void Renderer::Init() {
     Window &window = GetModule<Window>();
 
-    // window.ResizedScreen.Bind(
-    //     [this](glm::ivec2 size) {
-    //         UpdateDisplayTextures(size);
-    //     }
-    // );
-    //glm::ivec2 size = window.GetSize();
-
     InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
@@ -52,12 +45,6 @@ void Renderer::Process() {
 }
 
 void Renderer::Shutdown() {
-    for (ShaderPass *pass : shaderPasses) {
-        pass->Destroy();
-    }
-    for (Texture *texture : textures) {
-        texture->Destroy();
-    }
     if (device) SDL_DestroyGPUDevice(device);
 }
 

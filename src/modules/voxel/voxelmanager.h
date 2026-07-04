@@ -16,16 +16,13 @@ class VoxelManager : public EngineModule {
         void Process(void) override;
         void Shutdown(void) override;
 
-        uint32_t AllocateContreeNode(void);
-        void FreeContreeNode(uint32_t index);
+        Relptr<ContreeDataBase> AllocateContreeNode(void);
+        void FreeContreeNode(Relptr<ContreeDataBase> root);
 
-        uint32_t AllocateChunk(glm::ivec3 position);
-        void FreeChunk(uint32_t index);
+        Relptr<AllocatedChunksBase> AllocateChunk(glm::ivec3 position);
+        void FreeChunk(Relptr<AllocatedChunksBase> chunk);
 
         uint32_t GetChunkIndex(glm::ivec3 position);
-        
-        Chunk *GetChunkFromIndex(uint32_t index);
-        ContreeNode *GetNodeFromIndex(uint32_t index);
 
         glm::ivec3 GetChunkPosition(glm::ivec3 world_position);
 
@@ -33,10 +30,11 @@ class VoxelManager : public EngineModule {
         void SetVoxel(glm::ivec3 position, Voxel voxel);
         Voxel GetVoxel(glm::ivec3 position);
         // chunk space getting and setting voxels
-        void SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel);
-        Voxel GetVoxel(const Chunk *chunk, glm::uvec3 position);
+        void SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position, Voxel voxel);
+        Voxel GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position);
 
         void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
+        void FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
 
         void GenerateChunkOccupancyMap(void);
         

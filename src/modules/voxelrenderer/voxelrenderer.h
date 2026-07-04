@@ -3,8 +3,6 @@
 #include "engine.h"
 #include "modules/renderer/renderer.h"
 
-#include <unordered_map>
-
 class VoxelRenderer : public EngineModule {
     public:
         using EngineModule::EngineModule;
@@ -14,4 +12,7 @@ class VoxelRenderer : public EngineModule {
     private:
         SDL_GPUDevice *device = nullptr;
         Texture *display = nullptr;
+
+        std::vector<ShaderPass*> shaderPasses{};
+        std::vector<Texture*> textures{};
 };

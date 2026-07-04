@@ -3,8 +3,12 @@
 #include "glm/common.hpp"
 #include <unordered_set>
 #include <sstream>
-void VoxelManager::Init() {
 
+#include "fixedstack/fixedstack.hpp"
+
+void VoxelManager::Init() {
+    ContreeDataBase::set_base(contree_data);
+    AllocatedChunksBase::set_base(allocated_chunks);
 }
 
 void VoxelManager::Process() {
@@ -12,13 +16,13 @@ void VoxelManager::Process() {
 }
 
 void VoxelManager::Shutdown() {
-    delete[] chunk_occupancy.chunk_indices;
+    delete[] chunk_occupancy.chunks;
     contree_data.reserve(0);
     free_contree_indicies.reserve(0);
     allocated_chunks.reserve(0);
 }
 
-uint32_t VoxelManager::AllocateContreeNode() {
+Relptr<ContreeDataBase> VoxelManager::AllocateContreeNode() {
     uint32_t data_index;
     if (free_contree_indicies.empty()) {
         contree_data.push_back({});
@@ -32,29 +36,29 @@ uint32_t VoxelManager::AllocateContreeNode() {
     return data_index;
 }
 
-void VoxelManager::FreeContreeNode(uint32_t rootIndex) {
-    std::vector<uint32_t> stack(CONTREE_MAX_DEPTH);
-    stack.push_back(rootIndex);
+void VoxelManager::FreeContreeNode(Relptr<ContreeDataBase> root) {
+    FixedStack<Relptr<ContreeDataBase>, CONTREE_MAX_DEPTH> stack;
 
-    while (!stack.empty()) {
-        uint32_t index = stack.back();
-        stack.pop_back();
+    stack.push(root);
 
-        ContreeNode &node = contree_data[index];
+    while (stack.size()) {
+        Relptr<ContreeDataBase> index = stack.pop();
+
+        ContreeNode &node = *index;
 
         if (node.isVoxelMask != CONTREE_VOXEL_MASK_FULL) {
             for (size_t i = 0; i < CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH; i++) {
                 if (node.IsVoxel(i)) continue;
-                stack.push_back(node.GetChildValue(i));
+                stack.push(node.GetChildPtr(i));
             }
         }
 
         node.isVoxelMask = CONTREE_VOXEL_MASK_FULL;
-        free_contree_indicies.push_back(index);
+        free_contree_indicies.push_back(index.offset);
     }
 }
 
-uint32_t VoxelManager::AllocateChunk(const glm::ivec3 position) {
+Relptr<AllocatedChunksBase> VoxelManager::AllocateChunk(const glm::ivec3 position) {
     allocated_chunks.push_back({
         position,
         CHUNK_FLAG_EXISTS,
@@ -63,11 +67,9 @@ uint32_t VoxelManager::AllocateChunk(const glm::ivec3 position) {
     return allocated_chunks.size() - 1;
 }
 
-void VoxelManager::FreeChunk(const uint32_t index) {
-    Chunk *chunk = GetChunkFromIndex(index);
-    FreeContreeNode(chunk->chunk_data_index);
-
-    allocated_chunks[index] = allocated_chunks.back();
+void VoxelManager::FreeChunk(Relptr<AllocatedChunksBase> chunk) {
+    FreeContreeNode(chunk->contree_node);
+    allocated_chunks[chunk.offset] = allocated_chunks.back();
     allocated_chunks.pop_back();
 }
 
@@ -84,19 +86,7 @@ uint32_t VoxelManager::GetChunkIndex(const glm::ivec3 position) {
         (size_t)local.y * chunk_occupancy.size.x +
         (size_t)local.z * chunk_occupancy.size.x * chunk_occupancy.size.y;
 
-    return chunk_occupancy.chunk_indices[index];
-}
-
-Chunk* VoxelManager::GetChunkFromIndex(const uint32_t index) {
-    if (index >= allocated_chunks.size())
-        return nullptr;
-    return &allocated_chunks[index];
-}
-
-ContreeNode* VoxelManager::GetNodeFromIndex(uint32_t index) {
-    if (index >= contree_data.size())
-        return nullptr;
-    return &contree_data[index];
+    return chunk_occupancy.chunks[index].offset;
 }
 
 glm::ivec3 VoxelManager::GetChunkPosition(glm::ivec3 world_position) {
@@ -112,43 +102,32 @@ void VoxelManager::SetVoxel(glm::ivec3 world_position, Voxel voxel) {
     glm::ivec3 chunk_position = GetChunkPosition(world_position);
     glm::ivec3 local_position = world_position - chunk_position * glm::ivec3(CHUNK_WIDTH);
     uint32_t chunk_index = GetChunkIndex(chunk_position);
-    Chunk *c = GetChunkFromIndex(chunk_index);
-    if (c == nullptr) return;
-    SetVoxel(c, local_position, voxel);
+    Relptr<AllocatedChunksBase> chunk = chunk_index;
+    if (chunk == nullptr) return;
+    SetVoxel(chunk, local_position, voxel);
 }
 
 Voxel VoxelManager::GetVoxel(glm::ivec3 world_position) {
     glm::ivec3 chunk_position = GetChunkPosition(world_position);
     glm::ivec3 local_position = world_position - chunk_position * glm::ivec3(CHUNK_WIDTH);
     uint32_t chunk_index = GetChunkIndex(chunk_position);
-    Chunk *c = GetChunkFromIndex(chunk_index);
-    if (c == nullptr) return VOXEL_EMPTY;
-    return GetVoxel(c, local_position);
+    Relptr<AllocatedChunksBase> chunk = chunk_index;
+    if (chunk == nullptr) return VOXEL_EMPTY;
+    return GetVoxel(chunk, local_position);
 }
 
-void VoxelManager::SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel) {
-    
+void VoxelManager::SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position, Voxel voxel) {
     struct NodeStack {
-        uint32_t node_index;
+        Relptr<ContreeDataBase> node_index;
         uint8_t child_index;
     };
-    NodeStack node_stack[CONTREE_MAX_DEPTH]{};
-    uint8_t node_stack_position = 0;
-    auto node_stack_push = [&node_stack, &node_stack_position](NodeStack value) {
-        assert(node_stack_position < CONTREE_MAX_DEPTH);
-        node_stack[node_stack_position++] = value;
-    };
-    auto node_stack_pop = [&node_stack, &node_stack_position]() -> NodeStack {
-        assert(node_stack_position > 0);
-        return node_stack[--node_stack_position];
-    };
+    FixedStack<NodeStack, CONTREE_MAX_DEPTH> stack;
 
-    uint32_t node_index = chunk->chunk_data_index;
-    ContreeNode *node = GetNodeFromIndex(node_index);
+    Relptr<ContreeDataBase> node = chunk->contree_node;
     
     glm::uvec3 chunk_width = glm::uvec3(CHUNK_WIDTH);
 
-    node_stack_push({node_index, 0});
+    stack.push({node, 0});
 
     for (uint8_t depth = 0; depth < CONTREE_MAX_DEPTH - 1; depth++) { // depth - 1 because we dont need to allocate/check on the last layer we just want to set a voxel in it
         chunk_width /= CONTREE_NODE_WIDTH;
@@ -157,53 +136,51 @@ void VoxelManager::SetVoxel(Chunk *chunk, glm::uvec3 position, Voxel voxel) {
         position -= node_position * chunk_width;
 
         uint8_t child_node_index = node->GetIndex(node_position);
-        bool child_node_is_voxel = node->IsVoxel(child_node_index);
-        uint32_t child_node_data = node->GetChildValue(child_node_index);
-        uint32_t new_node_data = child_node_data;
 
-        if (child_node_is_voxel) {
-            if (child_node_data == voxel.data) return;
+        if (node->IsVoxel(child_node_index)) {
+            Voxel child_node_voxel = node->GetChildVoxel(child_node_index);
+            if (child_node_voxel == voxel) return;
 
-            uint32_t new_node_index = AllocateContreeNode();
-            node = GetNodeFromIndex(node_index); // regather node from its index because allocating new nodes can leave the pointer dangling
-            node->SetValue(child_node_index, false, new_node_index);
+            Relptr<ContreeDataBase> new_node = AllocateContreeNode();
+            node->SetPtr(child_node_index, new_node);
             
-            ContreeNode *new_node = GetNodeFromIndex(new_node_index);
             for (uint8_t i = 0; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
-                new_node->SetValue(i, true, child_node_data); // fill new node with voxel data from parent
+                new_node->SetVoxel(i, child_node_voxel); // fill new node with voxel data from parent
             }
-            new_node_data = new_node_index;
         }
 
-        node_index = new_node_data;
-        node_stack_push({node_index, child_node_index});
-        node = GetNodeFromIndex(node_index);
+        stack.push({node, child_node_index});
+        node = node->GetChildPtr(child_node_index);
     }
 
     uint8_t child_node_index = node->GetIndex(position);
-    node->SetValue(child_node_index, true, voxel.data);
+    node->SetVoxel(child_node_index, voxel);
 
     // merge uniform node regions
-    while (node_stack_position > 1) {
-        NodeStack current = node_stack_pop();
-        ContreeNode* current_node = GetNodeFromIndex(current.node_index);
-
+    while (stack.size() > 1) {
+        NodeStack current = stack.pop();
+        ContreeNode* current_node = current.node_index;
+        
+        // if the node isnt uniform no reason to continue
         if (!current_node->IsUniform())
             break;
-
-        uint32_t voxel_value = current_node->GetChildValue(0);
+        
+        Voxel voxel_value = current_node->GetChildVoxel(0);
         FreeContreeNode(current.node_index);
 
-        NodeStack parent = node_stack[node_stack_position - 1];
-        ContreeNode* parent_node = GetNodeFromIndex(parent.node_index);
+        NodeStack parent = stack.top();
+        ContreeNode* parent_node = parent.node_index;
 
-        parent_node->SetValue(current.child_index, true, voxel_value);
+        parent_node->SetVoxel(current.child_index, voxel_value);
     }
 }
 
-Voxel VoxelManager::GetVoxel(const Chunk *chunk, glm::uvec3 position) {
-    ContreeNode *node = GetNodeFromIndex(chunk->chunk_data_index);
+Voxel VoxelManager::GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position) {
+    Relptr<ContreeDataBase> node = chunk->contree_node;
+    
     glm::uvec3 chunk_width = glm::uvec3(CHUNK_WIDTH);
+    
+
     for (uint8_t depth; depth < CONTREE_MAX_DEPTH; depth++) {
         chunk_width /= CONTREE_NODE_WIDTH;
 
@@ -211,12 +188,10 @@ Voxel VoxelManager::GetVoxel(const Chunk *chunk, glm::uvec3 position) {
         position -= node_position * chunk_width;
 
         uint8_t child_node_index = node->GetIndex(node_position);
-        bool child_node_is_voxel = node->IsVoxel(child_node_index);
-        uint32_t child_node_data = node->GetChildValue(child_node_index);
-        if (child_node_is_voxel) {
-            return static_cast<Voxel>(child_node_data);
+        if (node->IsVoxel(child_node_index)) {
+            return static_cast<Voxel>(node->GetChildVoxel(child_node_index));
         }
-        node = GetNodeFromIndex(child_node_data);
+        node = node->GetChildPtr(child_node_index);
     }
     // if nothing is found in the search (should be impossible)
     return VOXEL_EMPTY;
@@ -230,17 +205,24 @@ void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position
     chunk_start = GetChunkPosition(start_position);
     chunk_end = GetChunkPosition(end_position);
 
-    for (uint32_t x = start_position.x; x < end_position.x; ++x) {
-        for (uint32_t y = start_position.y; y < end_position.y; ++y) {
-            for (uint32_t z = start_position.z; z < end_position.z; ++z) {
-                Chunk *c = GetChunkFromIndex(GetChunkIndex(glm::ivec3(x, y, z)));
-                // if no coverage skip the node
+    for (uint32_t cx = start_position.x; cx < end_position.x; ++cx) {
+        for (uint32_t cy = start_position.y; cy < end_position.y; ++cy) {
+            for (uint32_t cz = start_position.z; cz < end_position.z; ++cz) {
+                Relptr<AllocatedChunksBase> c = GetChunkIndex(glm::ivec3(cx, cy, cz));
+                FillVoxels(c->contree_node, 1, c->position*glm::ivec3(CHUNK_WIDTH), start_position, end_position, voxel);
+            }
+        }
+    }
+}
 
-                // go though node tree and determine if node has full coverage
-                // if it does then make the entire leaf of the node that voxel
+void VoxelManager::FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
+    uint16_t node_width = CHUNK_WIDTH / pow(CONTREE_NODE_WIDTH, depth);
+    for (uint8_t x = 0; x < CONTREE_NODE_WIDTH; x++) {
+        for (uint8_t y = 0; y < CONTREE_NODE_WIDTH; y++) {
+            for (uint8_t z = 0; z < CONTREE_NODE_WIDTH; z++) {
+                
 
-                // if not determine if the node has partial coverage
-                // if it does then go down or allocate another level deeper and repeat
+
             }
         }
     }
@@ -248,8 +230,8 @@ void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position
 
 void VoxelManager::GenerateChunkOccupancyMap() {
     if (allocated_chunks.empty()) {
-        delete[] chunk_occupancy.chunk_indices;
-        chunk_occupancy.chunk_indices = nullptr;
+        delete[] chunk_occupancy.chunks;
+        chunk_occupancy.chunks = nullptr;
         return;
     }
     // Chunk-space bounds
@@ -269,10 +251,10 @@ void VoxelManager::GenerateChunkOccupancyMap() {
 
     // Resize occupancy vector if the size is different
     if (newSize != oldSize) {
-        uint32_t *newMem = new uint32_t[newSize];
+        Relptr<AllocatedChunksBase> *newMem = new Relptr<AllocatedChunksBase>[newSize];
         if (!newMem) return;
-        delete[] chunk_occupancy.chunk_indices;
-        chunk_occupancy.chunk_indices = newMem;
+        delete[] chunk_occupancy.chunks;
+        chunk_occupancy.chunks = newMem;
         chunk_occupancy.size = gridSize;
     }
     
@@ -280,7 +262,7 @@ void VoxelManager::GenerateChunkOccupancyMap() {
     
     // Fill map with empty entries
     for (size_t i = 0; i < newSize; ++i) {
-        chunk_occupancy.chunk_indices[i] = POINTER_EMPTY;
+        chunk_occupancy.chunks[i] = nullptr;
     }
 
     // Fill occupancy map
@@ -294,9 +276,8 @@ void VoxelManager::GenerateChunkOccupancyMap() {
             local.y * gridSize.x +
             local.z * gridSize.x * gridSize.y;
 
-        chunk_occupancy.chunk_indices[index] = i;
+        chunk_occupancy.chunks[index] = i;
     }
-    
 }
 
 size_t VoxelManager::GetChunkDataAllocatedBytes() const {
@@ -336,20 +317,19 @@ static void DumpNode(
 
     for (int i = 0; i < N; i++) {
         bool isVoxel = node.IsVoxel(i);
-        uint32_t value = node.GetChildValue(i);
 
         ss << std::string((depth + 1) * 2, ' ')
            << "[" << i << "] ";
 
         if (isVoxel) {
-            Voxel v = (Voxel)value;
+            Voxel v = node.GetChildVoxel(i);
             if (!v.solid())
                 ss << "VOXEL empty\n";
             else
                 ss << "VOXEL " << v.to_string() << "\n";
         } else {
-            ss << "NODE -> " << value << "\n";
-            DumpNode(nodes, value, depth + 1, ss, visited);
+            ss << "NODE -> " << node.GetChildPtr(i) << "\n";
+            DumpNode(nodes, node.GetChildPtr(i).offset, depth + 1, ss, visited);
         }
     }
 }

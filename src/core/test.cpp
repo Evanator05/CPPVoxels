@@ -23,7 +23,7 @@ void Test::Init() {
     });
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    uint32_t chunk_index = vm.AllocateChunk(glm::ivec3(0, 0, 0));
+    Relptr<AllocatedChunksBase> chunk_index = vm.AllocateChunk(glm::ivec3(0, 0, 0));
     vm.GenerateChunkOccupancyMap();
     Voxel v{};
     v.set_r(3);
@@ -32,7 +32,8 @@ void Test::Init() {
     v.set_solid(true);
     vm.SetVoxel(glm::ivec3(256, 0, 0), v);
     console.Log(vm.DumpContreeGraph(0), Console::LogLevel::Info);
-    // console.Log(std::to_string(v2.r()) + "R " + std::to_string(v2.g()) + "G " + std::to_string(v2.b()) + "B", Console::LogLevel::Info);
+    Voxel v2 = vm.GetVoxel(glm::ivec3(256,0,0));
+    console.Log(v2.to_string(), Console::LogLevel::Info);
 }
 
 void Test::Process() {
