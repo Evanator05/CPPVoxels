@@ -33,6 +33,8 @@ class VoxelManager : public EngineModule {
         void SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position, Voxel voxel);
         Voxel GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position);
 
+        void FillNodeUniform(Relptr<ContreeDataBase> node, Voxel voxel);
+
         void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
         void FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
 

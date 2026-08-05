@@ -1,11 +1,9 @@
 #pragma once
 
-#include "shaderpass.h"
-#include "texture.h"
+#include "../shaderpass.h"
+#include "../resources/texture.h"
 
-#include "gui.h"
-
-class ImGuiPass : public ShaderPass {
+class BlitPass : public ShaderPass {
     public:
         using ShaderPass::ShaderPass;
 
@@ -13,7 +11,8 @@ class ImGuiPass : public ShaderPass {
         void Destroy(void) override;
         void Execute(SDL_GPUCommandBuffer* cmd) override;
 
+        Texture *source;
         Texture *destination;
 
-    private:
+    private:    
 };

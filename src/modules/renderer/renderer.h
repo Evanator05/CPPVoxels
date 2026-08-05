@@ -1,8 +1,8 @@
 #pragma once
 
 #include "engine.h"
-#include "computepass.h"
-#include "texture.h"
+#include "shaderpasses/computepass.h"
+#include "resources/texture.h"
 
 #include <vector>
 #include <unordered_map>

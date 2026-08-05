@@ -1,12 +1,10 @@
 #include <cstdint>
 #include "relptr/relptr.hpp"
 
-
-
 static constexpr uint8_t CONTREE_NODE_WIDTH = 4;
-static constexpr uint8_t CONTREE_MAX_DEPTH = 5;
+static constexpr uint8_t CONTREE_MAX_DEPTH = 3;
 static constexpr uint64_t CONTREE_VOXEL_MASK_FULL = UINT64_MAX;
-static constexpr uint16_t CHUNK_WIDTH = 1024; // CONTREE_NODE_WIDTH^CONTREE_MAX_DEPTH
+static constexpr uint16_t CHUNK_WIDTH = 64; // CONTREE_NODE_WIDTH^CONTREE_MAX_DEPTH
 static constexpr uint32_t CHUNK_FLAG_EXISTS = 0b00000000000000000000000000000001;
 static constexpr uint32_t CHUNK_FLAG_DIRTY  = 0b00000000000000000000000000000010;
 static constexpr uint32_t POINTER_EMPTY = UINT32_MAX;
@@ -47,30 +45,30 @@ struct ContreeNode {
         Relptr<ContreeDataBase> child_nodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH];
     };
 
-    uint8_t GetIndex(glm::uvec3 position) {
+    size_t GetIndex(glm::uvec3 position) {
         return position.x + position.y * CONTREE_NODE_WIDTH + position.z * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH;
     }
 
-    Relptr<ContreeDataBase> GetChildPtr(uint8_t index) {
+    Relptr<ContreeDataBase> GetPtr(size_t index) {
         return child_nodes[index];
     }
 
-    Voxel GetChildVoxel(uint8_t index) {
+    Voxel GetVoxel(size_t index) {
         return voxel_data[index];
     }
 
 
-    bool IsVoxel(uint8_t index) { // if true the node has a voxel data, if false the value is a node
+    bool IsVoxel(size_t index) { // if true the node has a voxel data, if false the value is a node
         return (isVoxelMask >> index) & 1ULL;
     }
 
-    void SetVoxel(uint8_t index, Voxel value) {
+    void SetVoxel(size_t index, Voxel value) {
         voxel_data[index] = value;
         uint64_t bit = 1ULL << index;
         isVoxelMask |= bit;
     }
 
-    void SetPtr(uint8_t index, Relptr<ContreeDataBase> value) {
+    void SetPtr(size_t index, Relptr<ContreeDataBase> value) {
         child_nodes[index] = value;
         uint64_t bit = 1ULL << index;
         isVoxelMask &= ~bit;
@@ -81,14 +79,13 @@ struct ContreeNode {
 
         Voxel value = voxel_data[0];
         
-        for (uint8_t i = 1; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
+        for (size_t i = 1; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
             if (!IsVoxel(i)) return false;
-            if (GetChildVoxel(i) != value) return false;
+            if (GetVoxel(i) != value) return false;
         }
         return true;
     }
 };
-
 
 struct Chunk {
     glm::ivec3 position{}; // the position in chunk space of this chunk

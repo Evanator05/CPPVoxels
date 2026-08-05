@@ -1,6 +1,6 @@
 #include "voxelrenderer.h"
-#include "modules/renderer/imguipass.h"
-#include "modules/renderer/blitpass.h"
+#include "modules/renderer/shaderpasses/imguipass.h"
+#include "modules/renderer/shaderpasses/blitpass.h"
 #include "shaders/test.h"
 #include "window.h"
 

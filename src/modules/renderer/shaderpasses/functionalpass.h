@@ -1,18 +1,17 @@
 #pragma once
 
-#include "shaderpass.h"
-#include "texture.h"
+#include "../shaderpass.h"
+#include "functional"
 
-class BlitPass : public ShaderPass {
+class FunctionalPass : public ShaderPass {
     public:
         using ShaderPass::ShaderPass;
+
+        using Function = std::function<void(SDL_GPUCommandBuffer*)>;
 
         void Create(void) override;
         void Destroy(void) override;
         void Execute(SDL_GPUCommandBuffer* cmd) override;
 
-        Texture *source;
-        Texture *destination;
-
-    private:    
+        Function function;
 };

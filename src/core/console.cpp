@@ -23,10 +23,7 @@ static std::string FormatTime(const std::chrono::system_clock::time_point& tp)
     return ss.str();
 }
 
-// ---------------- LIFECYCLE ----------------
-
-void Console::Init()
-{
+void Console::Init() {
     Input& input = GetModule<Input>();
     input.CreateAction("toggleconsole");
     input.CreateBinding("toggleconsole", SDLK_GRAVE);
@@ -39,8 +36,7 @@ void Console::Init()
     });
 }
 
-void Console::Process()
-{
+void Console::Process() {
     Input& input = GetModule<Input>();
 
     if (input.IsPressed("toggleconsole"))
@@ -70,23 +66,20 @@ void Console::Process()
     if (ImGui::BeginTable("ConsoleTable", 3,
         ImGuiTableFlags_RowBg |
         ImGuiTableFlags_BordersInnerV |
-        ImGuiTableFlags_Resizable))
-    {
+        ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Time");
         ImGui::TableSetupColumn("Level");
         ImGui::TableSetupColumn("Message");
         ImGui::TableHeadersRow();
 
-        for (const auto& entry : messages)
-        {
+        for (const auto& entry : messages) {
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
             ImGui::TextUnformatted(FormatTime(entry.time).c_str());
 
             ImGui::TableSetColumnIndex(1);
-            switch (entry.level)
-            {
+            switch (entry.level) {
                 case LogLevel::Info:    ImGui::TextUnformatted("INFO"); break;
                 case LogLevel::Warning: ImGui::TextUnformatted("WARN"); break;
                 case LogLevel::Error:   ImGui::TextUnformatted("ERROR"); break;
@@ -127,12 +120,10 @@ void Console::Process()
 
     ImGui::PopItemWidth();
 
-    if (enterPressed)
-    {
+    if (enterPressed) {
         std::string cmd(inputBuf);
 
-        if (!cmd.empty())
-        {
+        if (!cmd.empty()) {
             Log("> " + cmd, LogLevel::Info);
             ExecuteCommand(cmd);
         }
@@ -165,37 +156,31 @@ static std::vector<std::string> TokenizeCommand(const std::string& input) {
     std::string current;
     bool inQuotes = false;
 
-    for (size_t i = 0; i < input.size(); i++)
-    {
+    for (size_t i = 0; i < input.size(); i++) {
         char c = input[i];
 
-        if (c == '\\' && i + 1 < input.size())
-        {
+        if (c == '\\' && i + 1 < input.size()) {
             char next = input[i + 1];
-            if (next == '"' || next == '\\')
-            {
+            if (next == '"' || next == '\\') {
                 current += next;
                 i++;
                 continue;
             }
         }
 
-        if (c == '"')
-        {
+        if (c == '"') {
             inQuotes = !inQuotes;
             continue;
         }
 
-        if (!inQuotes && std::isspace((unsigned char)c))
-        {
+        if (!inQuotes && std::isspace((unsigned char)c)) {
             if (!current.empty())
             {
                 tokens.push_back(current);
                 current.clear();
             }
         }
-        else
-        {
+        else {
             current += c;
         }
     }
@@ -213,20 +198,17 @@ void Console::ExecuteCommand(const std::string& command) {
 
     auto it = commands.find(tokens[0]);
 
-    if (it == commands.end())
-    {
+    if (it == commands.end()) {
         Log("Unknown command: " + tokens[0], LogLevel::Error);
         return;
     }
 
     std::vector<std::string> args(tokens.begin() + 1, tokens.end());
 
-    try
-    {
+    try {
         it->second(args);
     }
-    catch (const std::exception& e)
-    {
+    catch (const std::exception& e) {
         Log(std::string("Command error: ") + e.what(), LogLevel::Error);
     }
 }

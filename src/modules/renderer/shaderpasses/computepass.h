@@ -1,6 +1,6 @@
 #pragma once
 
-#include "shaderpass.h"
+#include "../shaderpass.h"
 
 #include <vector>
 #include <functional>
@@ -8,9 +8,9 @@
 #include "stdint.h"
 #include "glm/vec3.hpp"
 
-#include "modules/renderer/texture.h"
-#include "modules/renderer/buffer.h"
-#include "modules/renderer/sampler.h"
+#include "../resources/texture.h"
+#include "../resources/buffer.h"
+#include "../resources//sampler.h"
 
 class ComputePass : public ShaderPass {
     public:

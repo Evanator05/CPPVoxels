@@ -72,9 +72,7 @@ public:
 
         offset = static_cast<I>(diff);
     }
-
     
-
     T* operator->() const { return resolve(); }
     T& operator*() const { return *resolve(); }
     operator T*() const { return resolve(); }

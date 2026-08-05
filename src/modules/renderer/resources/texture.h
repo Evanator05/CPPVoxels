@@ -1,6 +1,6 @@
 #pragma once
 
-#include "resource.h"
+#include "../resource.h"
 
 #include "glm/vec2.hpp"
 

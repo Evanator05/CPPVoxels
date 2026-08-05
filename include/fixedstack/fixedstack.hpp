@@ -3,7 +3,7 @@
 
 template<typename T, size_t N>
 struct FixedStack {
-    T data[N];        // FIX: remove *
+    T data[N];
     size_t position = 0;
 
     void push(const T& v) {
@@ -17,7 +17,8 @@ struct FixedStack {
     }
 
     T& top(size_t spot = 1) {
-        assert(position >= spot);
+        assert(spot > 0);
+        assert(spot <= position);
         return data[position - spot];
     }
 

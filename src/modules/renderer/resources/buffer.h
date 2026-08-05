@@ -1,6 +1,6 @@
 #pragma once
 
-#include "resource.h"
+#include "../resource.h"
 
 class Buffer : Resource<SDL_GPUBuffer> {
     public:

@@ -9,6 +9,9 @@
 void VoxelManager::Init() {
     ContreeDataBase::set_base(contree_data);
     AllocatedChunksBase::set_base(allocated_chunks);
+    contree_data.reserve(10);
+    free_contree_indicies.reserve(10);
+    allocated_chunks.reserve(10);
 }
 
 void VoxelManager::Process() {
@@ -49,7 +52,7 @@ void VoxelManager::FreeContreeNode(Relptr<ContreeDataBase> root) {
         if (node.isVoxelMask != CONTREE_VOXEL_MASK_FULL) {
             for (size_t i = 0; i < CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH; i++) {
                 if (node.IsVoxel(i)) continue;
-                stack.push(node.GetChildPtr(i));
+                stack.push(node.GetPtr(i));
             }
         }
 
@@ -138,7 +141,7 @@ void VoxelManager::SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 positi
         uint8_t child_node_index = node->GetIndex(node_position);
 
         if (node->IsVoxel(child_node_index)) {
-            Voxel child_node_voxel = node->GetChildVoxel(child_node_index);
+            Voxel child_node_voxel = node->GetVoxel(child_node_index);
             if (child_node_voxel == voxel) return;
 
             Relptr<ContreeDataBase> new_node = AllocateContreeNode();
@@ -150,28 +153,29 @@ void VoxelManager::SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 positi
         }
 
         stack.push({node, child_node_index});
-        node = node->GetChildPtr(child_node_index);
+        node = node->GetPtr(child_node_index);
     }
 
     uint8_t child_node_index = node->GetIndex(position);
     node->SetVoxel(child_node_index, voxel);
 
-    // merge uniform node regions
-    while (stack.size() > 1) {
-        NodeStack current = stack.pop();
-        ContreeNode* current_node = current.node_index;
-        
-        // if the node isnt uniform no reason to continue
+    ContreeNode* current_node = node;
+
+    while (stack.size() > 0) {
         if (!current_node->IsUniform())
             break;
-        
-        Voxel voxel_value = current_node->GetChildVoxel(0);
-        FreeContreeNode(current.node_index);
 
-        NodeStack parent = stack.top();
-        ContreeNode* parent_node = parent.node_index;
+        Voxel voxel_value = current_node->GetVoxel(0);
 
-        parent_node->SetVoxel(current.child_index, voxel_value);
+        NodeStack parent_info = stack.pop();
+
+        ContreeNode* parent_node = parent_info.node_index;
+
+        FreeContreeNode(parent_node->GetPtr(parent_info.child_index));
+
+        parent_node->SetVoxel(parent_info.child_index, voxel_value);
+
+        current_node = parent_node;
     }
 }
 
@@ -180,7 +184,6 @@ Voxel VoxelManager::GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 posit
     
     glm::uvec3 chunk_width = glm::uvec3(CHUNK_WIDTH);
     
-
     for (uint8_t depth; depth < CONTREE_MAX_DEPTH; depth++) {
         chunk_width /= CONTREE_NODE_WIDTH;
 
@@ -189,40 +192,99 @@ Voxel VoxelManager::GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 posit
 
         uint8_t child_node_index = node->GetIndex(node_position);
         if (node->IsVoxel(child_node_index)) {
-            return static_cast<Voxel>(node->GetChildVoxel(child_node_index));
+            return static_cast<Voxel>(node->GetVoxel(child_node_index));
         }
-        node = node->GetChildPtr(child_node_index);
+        node = node->GetPtr(child_node_index);
     }
     // if nothing is found in the search (should be impossible)
     return VOXEL_EMPTY;
 }
 
 void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
-    glm::ivec3 chunk_start = glm::min(start_position, end_position);
-    glm::ivec3 chunk_end   = glm::max(start_position, end_position);
-    start_position = chunk_start;
-    end_position = chunk_end;
-    chunk_start = GetChunkPosition(start_position);
-    chunk_end = GetChunkPosition(end_position);
+    glm::ivec3 fill_start = glm::min(start_position, end_position);
+    glm::ivec3 fill_end   = glm::max(start_position, end_position); // inclusive last voxel
 
-    for (uint32_t cx = start_position.x; cx < end_position.x; ++cx) {
-        for (uint32_t cy = start_position.y; cy < end_position.y; ++cy) {
-            for (uint32_t cz = start_position.z; cz < end_position.z; ++cz) {
+    glm::ivec3 chunk_start = GetChunkPosition(fill_start);
+    glm::ivec3 chunk_end   = GetChunkPosition(fill_end) + 1; // +1 just to make the loop bound exclusive
+
+    for (int32_t cx = chunk_start.x; cx < chunk_end.x; ++cx) {
+        for (int32_t cy = chunk_start.y; cy < chunk_end.y; ++cy) {
+            for (int32_t cz = chunk_start.z; cz < chunk_end.z; ++cz) {
                 Relptr<AllocatedChunksBase> c = GetChunkIndex(glm::ivec3(cx, cy, cz));
-                FillVoxels(c->contree_node, 1, c->position*glm::ivec3(CHUNK_WIDTH), start_position, end_position, voxel);
+                if (c == nullptr) continue;
+                FillVoxels(c->contree_node, 1, c->position * glm::ivec3(CHUNK_WIDTH), fill_start, fill_end, voxel);
             }
         }
     }
 }
 
+bool Intersects(glm::ivec3 aMin, glm::ivec3 aMax,
+                 glm::ivec3 bMin, glm::ivec3 bMax)
+{
+    return
+        aMin.x <= bMax.x && aMax.x >= bMin.x &&
+        aMin.y <= bMax.y && aMax.y >= bMin.y &&
+        aMin.z <= bMax.z && aMax.z >= bMin.z;
+}
+
+bool FullyContains(glm::ivec3 outerMin, glm::ivec3 outerMax,
+                    glm::ivec3 innerMin, glm::ivec3 innerMax)
+{
+    return
+        innerMin.x >= outerMin.x && innerMax.x <= outerMax.x &&
+        innerMin.y >= outerMin.y && innerMax.y <= outerMax.y &&
+        innerMin.z >= outerMin.z && innerMax.z <= outerMax.z;
+}
+
+// Sets every cell of a node to the same voxel, without further subdivision.
+void VoxelManager::FillNodeUniform(Relptr<ContreeDataBase> node, Voxel voxel) {
+    glm::uvec3 i;
+    for (i.x = 0; i.x < CONTREE_NODE_WIDTH; i.x++)
+        for (i.y = 0; i.y < CONTREE_NODE_WIDTH; i.y++)
+            for (i.z = 0; i.z < CONTREE_NODE_WIDTH; i.z++) {
+                uint16_t index = node->GetIndex(i);
+                if (!node->IsVoxel(index)) FreeContreeNode(index); // free existing child subtree before overwriting
+                node->SetVoxel(index, voxel);
+            }
+}
+
 void VoxelManager::FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
-    uint16_t node_width = CHUNK_WIDTH / pow(CONTREE_NODE_WIDTH, depth);
-    for (uint8_t x = 0; x < CONTREE_NODE_WIDTH; x++) {
-        for (uint8_t y = 0; y < CONTREE_NODE_WIDTH; y++) {
-            for (uint8_t z = 0; z < CONTREE_NODE_WIDTH; z++) {
-                
+    if (node == nullptr) return;
+    if (depth > CONTREE_MAX_DEPTH) return;
 
+    uint32_t node_width = CHUNK_WIDTH;
+    for (uint8_t d = 0; d < depth; ++d) node_width /= CONTREE_NODE_WIDTH;
 
+    glm::uvec3 i;
+    for (i.x = 0; i.x < CONTREE_NODE_WIDTH; i.x++) {
+        for (i.y = 0; i.y < CONTREE_NODE_WIDTH; i.y++) {
+            for (i.z = 0; i.z < CONTREE_NODE_WIDTH; i.z++) {
+                uint16_t index = node->GetIndex(i);
+                glm::ivec3 child_pos = node_position + glm::ivec3(i) * (int32_t)node_width;
+                glm::ivec3 child_end = child_pos + glm::ivec3(node_width) - glm::ivec3(1);
+
+                if (!Intersects(child_pos, child_end, start_position, end_position)) continue;
+
+                if (FullyContains(start_position, end_position, child_pos, child_end)) {
+                    if (!node->IsVoxel(index)) FreeContreeNode(index);
+                    node->SetVoxel(index, voxel);
+                    continue;
+                }
+
+                // partial coverage
+                if (depth < CONTREE_MAX_DEPTH) {
+                    if (node->IsVoxel(index)) {
+                        Voxel existing = node->GetVoxel(index);
+                        Relptr<ContreeDataBase> child = AllocateContreeNode();
+                        node->SetPtr(index, child);
+                        FillNodeUniform(child, existing);
+                    }
+                    FillVoxels(node->GetPtr(index), depth + 1, child_pos, start_position, end_position, voxel);
+                } else {
+                    // nothing left to subdivide
+                    if (!node->IsVoxel(index)) FreeContreeNode(index);
+                    node->SetVoxel(index, voxel);
+                }
             }
         }
     }
@@ -322,14 +384,14 @@ static void DumpNode(
            << "[" << i << "] ";
 
         if (isVoxel) {
-            Voxel v = node.GetChildVoxel(i);
+            Voxel v = node.GetVoxel(i);
             if (!v.solid())
                 ss << "VOXEL empty\n";
             else
                 ss << "VOXEL " << v.to_string() << "\n";
         } else {
-            ss << "NODE -> " << node.GetChildPtr(i) << "\n";
-            DumpNode(nodes, node.GetChildPtr(i).offset, depth + 1, ss, visited);
+            ss << "NODE -> " << node.GetPtr(i) << "\n";
+            DumpNode(nodes, node.GetPtr(i).offset, depth + 1, ss, visited);
         }
     }
 }
