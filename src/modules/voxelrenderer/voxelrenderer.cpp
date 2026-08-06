@@ -3,6 +3,9 @@
 #include "modules/renderer/shaderpasses/blitpass.h"
 #include "shaders/test.h"
 #include "window.h"
+#include "deltatime.h"
+#include "input.h"
+#include "console.h"
 
 void VoxelRenderer::Init() {
     Window &window = GetModule<Window>();
@@ -23,6 +26,12 @@ void VoxelRenderer::Init() {
     display->format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     display->Create();
 
+
+    posBuffer = new TypedBuffer<float>(device);
+    posBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    posBuffer->SetSize(3);
+    posBuffer->Create();
+
     ComputePass *test = new ComputePass(device);
     test->spirv = test_spirv;
     test->spirv_size = std::size(test_spirv);
@@ -37,6 +46,7 @@ void VoxelRenderer::Init() {
             1
         );
     };
+    test->readonly_storage_buffers.push_back(posBuffer);
     test->Create();
     
     BlitPass *copyToSwaptex = new BlitPass(device);
@@ -55,10 +65,37 @@ void VoxelRenderer::Init() {
     shaderPasses.push_back(copyToSwaptex);
     shaderPasses.push_back(gui);
     textures.push_back(display);
+
+    pos[0] = 0;
+    pos[1] = 6.5;
+    pos[2] = 6.5;
 }
 
 void VoxelRenderer::Process() {
-
+    Input &input = GetModule<Input>();
+    float deltaTime = GetModule<DeltaTime>().Get()*10;
+    if (input.IsHeld("break_block")) {
+        deltaTime *= 5;
+    }
+    if (input.IsHeld("left")) {
+        pos[0] += deltaTime;
+    }
+    if (input.IsHeld("right")) {
+        pos[0] -= deltaTime;
+    }
+    if (input.IsHeld("forward")) {
+        pos[2] += deltaTime;
+    }
+    if (input.IsHeld("backward")) {
+        pos[2] -= deltaTime;
+    }
+    if (input.IsHeld("up")) {
+        pos[1] += deltaTime;
+    }
+    if (input.IsHeld("down")) {
+        pos[1] -= deltaTime;
+    }
+    posBuffer->Upload(pos, 3);
 }
 
 void VoxelRenderer::Shutdown() {

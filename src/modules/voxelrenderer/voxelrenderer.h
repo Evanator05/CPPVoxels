@@ -2,6 +2,7 @@
 
 #include "engine.h"
 #include "modules/renderer/renderer.h"
+#include "modules/renderer/resources/buffer.h"
 
 class VoxelRenderer : public EngineModule {
     public:
@@ -15,4 +16,6 @@ class VoxelRenderer : public EngineModule {
 
         std::vector<ShaderPass*> shaderPasses{};
         std::vector<Texture*> textures{};
+        TypedBuffer<float> *posBuffer = nullptr;
+        float pos[3]{};
 };
