@@ -22,5 +22,6 @@ class Window : public EngineModule {
         Event<glm::ivec2> ResizedScreen;
         Event<SDL_Event*> InputEvent;
     private:
-        SDL_Window* window;
+        SDL_Window *window = nullptr;
+        SDL_Surface *icon = nullptr;
 };

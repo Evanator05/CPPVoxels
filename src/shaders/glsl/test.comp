@@ -10,7 +10,7 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(set = 1, binding = 0, rgba8) uniform writeonly image2D destImage;
-layout(set = 0, binding = 0, std430) buffer WorldInfo {
+layout(set = 0, binding = 0) buffer WorldInfo {
     vec3 pos;
 } worldInfo;
 
@@ -193,7 +193,7 @@ float raymarch(vec3 ro, vec3 rd, out int material)
 {
     float t  = 0.0;
     material = 0;
-    for (int i = 0; i < 128; i++)
+    for (int i = 0; i < 512; i++)
     {
         vec3    p = ro + rd * t;
         HitInfo h = map(p);
@@ -203,7 +203,7 @@ float raymarch(vec3 ro, vec3 rd, out int material)
             return t;
         }
         t += h.dist;
-        if (t > 300.0) break;
+        if (t > 500.0) break;
     }
     return -1.0;
 }

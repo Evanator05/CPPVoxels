@@ -5,13 +5,6 @@
 
 #include "gui.h"
 
-#include "shaders/main.h"
-#include "shaders/depth.h"
-#include "shaders/upscaler.h"
-#include "shaders/indexmap.h"
-
-#include "shaders/test.h"
-
 void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
     device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
     if (!device) throw std::runtime_error("Failed to create GPU device");
@@ -24,7 +17,7 @@ void Renderer::Init() {
     InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
-    SetVSync(true); // setting to false uncaps framerate
+    SetVSync(false); // setting to false uncaps framerate
 }
 
 void Renderer::Process() {
@@ -37,7 +30,11 @@ void Renderer::Process() {
     SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window.GetWindow(), &swapTex, &sw, &sh);
     swapchainTexture.CreateFrom(swapTex, glm::ivec2(sw, sh), 0, SDL_GetGPUSwapchainTextureFormat(device, window.GetWindow()));
 
-    for (ShaderPass *pass : shaderPassOrder) {
+    for (IExecutableResource *resource : executableResources) {
+        resource->Execute(cmd);
+    }
+
+    for (ShaderPass *pass : shaderPasses) {
         pass->Execute(cmd);
     }
 
@@ -45,6 +42,17 @@ void Renderer::Process() {
 }
 
 void Renderer::Shutdown() {
+    for (IResource *resource : resources) {
+        resource->Destroy();
+        delete resource;
+    }
+    resources.clear();
+    for (ShaderPass *shaderPass : shaderPasses) {
+        shaderPass->Destroy();
+        delete shaderPass;
+    }
+    shaderPasses.clear();
+
     if (device) SDL_DestroyGPUDevice(device);
 }
 

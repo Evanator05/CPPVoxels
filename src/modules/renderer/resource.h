@@ -12,6 +12,13 @@ class IResource {
         SDL_GPUDevice *device = nullptr;
 };
 
+class IExecutableResource : public IResource {
+    public:
+        IExecutableResource(SDL_GPUDevice* device)
+        : IResource(device) {}
+        virtual void Execute(SDL_GPUCommandBuffer* cmd) = 0;
+};
+
 template<typename T>
 class Resource : public IResource {
     public:

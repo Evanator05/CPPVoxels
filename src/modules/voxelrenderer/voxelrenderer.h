@@ -12,10 +12,6 @@ class VoxelRenderer : public EngineModule {
         void Shutdown(void) override;
     private:
         SDL_GPUDevice *device = nullptr;
-        Texture *display = nullptr;
-
-        std::vector<ShaderPass*> shaderPasses{};
-        std::vector<Texture*> textures{};
         TypedBuffer<float> *posBuffer = nullptr;
         float pos[3]{};
 };

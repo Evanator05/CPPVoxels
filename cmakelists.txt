@@ -20,25 +20,25 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ------------------------------------------------------------------
-# Compile GLSL shaders directly into C headers using glslangValidator
+# Compile Slang shaders directly into C headers using slangc
 # ------------------------------------------------------------------
-find_program(GLSLANG_VALIDATOR
-    NAMES glslangValidator
-    HINTS ENV VULKAN_SDK
+find_program(SLANGC
+    NAMES slangc
+    HINTS ENV VULKAN_SDK ENV SLANG_SDK
     PATH_SUFFIXES bin
     REQUIRED
 )
 
-file(GLOB_RECURSE GLSL_SRC_FILES
-    "${CMAKE_SOURCE_DIR}/src/shaders/glsl/*.comp"
+file(GLOB_RECURSE SLANG_SRC_FILES
+    "${CMAKE_SOURCE_DIR}/src/shaders/slang/*.slang"
 )
 
 set(SHADER_HEADER_DIR ${CMAKE_SOURCE_DIR}/src/shaders)
 file(MAKE_DIRECTORY ${SHADER_HEADER_DIR})
 
 set(SHADER_HEADERS)
-foreach(GLSL ${GLSL_SRC_FILES})
-    get_filename_component(FILE_NAME ${GLSL} NAME_WE)
+foreach(SLANG_SRC ${SLANG_SRC_FILES})
+    get_filename_component(FILE_NAME ${SLANG_SRC} NAME_WE)
     set(HDR ${SHADER_HEADER_DIR}/${FILE_NAME}.h)
 
     # Variable name inside the header
@@ -46,14 +46,16 @@ foreach(GLSL ${GLSL_SRC_FILES})
 
     add_custom_command(
         OUTPUT ${HDR}
-        COMMAND ${GLSLANG_VALIDATOR}
-            -V
-            --target-env vulkan1.1
-            --vn ${VAR_NAME}
+        COMMAND ${SLANGC}
+            ${SLANG_SRC}
+            -target spirv
+            -profile spirv_1_3
+            -emit-spirv-directly
+            -source-embed-style u32
+            -source-embed-name ${VAR_NAME}
             -o ${HDR}
-            ${GLSL}
-        DEPENDS ${GLSL}
-        COMMENT "Compiling ${GLSL} -> ${HDR}"
+        DEPENDS ${SLANG_SRC}
+        COMMENT "Compiling ${SLANG_SRC} -> ${HDR}"
         VERBATIM
     )
 
@@ -110,3 +112,5 @@ target_link_options(Voxels PRIVATE
 
 # Ensure shaders are built first
 add_dependencies(Voxels Shaders)
+
+message(STATUS "Found slang sources: ${SLANG_SRC_FILES}")

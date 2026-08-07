@@ -20,11 +20,33 @@ class Renderer : public EngineModule {
 
         void SetVSync(bool enable);
 
-        SDL_GPUDevice* GetDevice();
+        template<typename ResourceType>
+        ResourceType* CreateResource() {
+            ResourceType* resource = new ResourceType(device);
 
-        std::vector<ShaderPass*> shaderPassOrder;
+            if constexpr (std::is_base_of_v<IResource, ResourceType>)
+                resources.push_back(resource);
+
+            if constexpr (std::is_base_of_v<IExecutableResource, ResourceType>)
+                executableResources.push_back(resource);
+
+            return resource;
+        }
+
+        template<typename PassType>
+        PassType* CreateShaderPass() {
+            PassType* pass = new PassType(device);
+            shaderPasses.push_back(pass);
+            return pass;
+        }
+
+        SDL_GPUDevice* GetDevice();
 
         Texture swapchainTexture{device};
     private:
         SDL_GPUDevice* device = nullptr; 
+
+        std::vector<IResource*> resources;
+        std::vector<IExecutableResource*> executableResources;
+        std::vector<ShaderPass*> shaderPasses;
 };

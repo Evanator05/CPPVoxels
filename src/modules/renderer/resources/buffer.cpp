@@ -52,6 +52,8 @@ void Buffer::Upload(void *source, size_t cpu_start, size_t gpu_start, size_t siz
 
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
 
+    
+
     SDL_EndGPUCopyPass(pass);
     SDL_SubmitGPUCommandBuffer(cmd);
 }

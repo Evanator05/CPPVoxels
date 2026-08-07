@@ -11,28 +11,23 @@ void VoxelRenderer::Init() {
     Window &window = GetModule<Window>();
     Renderer &renderer = GetModule<Renderer>();
 
-    window.ResizedScreen.Bind(
-        [this](glm::ivec2 size) {
-            display->size = size;
-            display->Create();
-        }
-    );
+    
 
     device = renderer.GetDevice();
     
-    display = new Texture(device);
+    Texture *display = renderer.CreateResource<Texture>();
     display->size = window.GetSize();
     display->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     display->format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     display->Create();
 
 
-    posBuffer = new TypedBuffer<float>(device);
+    posBuffer = renderer.CreateResource<TypedBuffer<float>>();
     posBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     posBuffer->SetSize(3);
     posBuffer->Create();
-
-    ComputePass *test = new ComputePass(device);
+    
+    ComputePass *test = renderer.CreateShaderPass<ComputePass>();
     test->spirv = test_spirv;
     test->spirv_size = std::size(test_spirv);
     test->threadcount = {16, 16, 1};
@@ -49,26 +44,23 @@ void VoxelRenderer::Init() {
     test->readonly_storage_buffers.push_back(posBuffer);
     test->Create();
     
-    BlitPass *copyToSwaptex = new BlitPass(device);
+    BlitPass *copyToSwaptex = renderer.CreateShaderPass<BlitPass>();
     copyToSwaptex->source = display;
     copyToSwaptex->destination = &renderer.swapchainTexture;
 
-    ImGuiPass *gui = new ImGuiPass(device);
+    ImGuiPass *gui = renderer.CreateShaderPass<ImGuiPass>();
     gui->destination = &renderer.swapchainTexture;
-
-    renderer.shaderPassOrder.push_back(test);
-    renderer.shaderPassOrder.push_back(copyToSwaptex);
-    renderer.shaderPassOrder.push_back(gui);
-
-    // push to vectors for cleanup later
-    shaderPasses.push_back(test);
-    shaderPasses.push_back(copyToSwaptex);
-    shaderPasses.push_back(gui);
-    textures.push_back(display);
 
     pos[0] = 0;
     pos[1] = 6.5;
     pos[2] = 6.5;
+
+    window.ResizedScreen.Bind(
+        [this, display](glm::ivec2 size) {
+            display->size = size;
+            display->Create();
+        }
+    );
 }
 
 void VoxelRenderer::Process() {
@@ -99,10 +91,5 @@ void VoxelRenderer::Process() {
 }
 
 void VoxelRenderer::Shutdown() {
-    for (ShaderPass *shaderPass : shaderPasses) {
-        shaderPass->Destroy();
-    }
-    for (Texture *texture : textures) {
-        texture->Destroy();
-    }
+    
 }
