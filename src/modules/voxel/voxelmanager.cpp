@@ -64,7 +64,7 @@ void VoxelManager::FreeContreeNode(Relptr<ContreeDataBase> root) {
 Relptr<AllocatedChunksBase> VoxelManager::AllocateChunk(const glm::ivec3 position) {
     allocated_chunks.push_back({
         position,
-        CHUNK_FLAG_EXISTS,
+        //CHUNK_FLAG_EXISTS,
         AllocateContreeNode()
     });
     return allocated_chunks.size() - 1;

@@ -58,6 +58,6 @@ class TypedBuffer : public Buffer {
             Buffer::SetSize(sizeof(T) * elementCount);
         }
         size_t GetSize() {
-            return sizeof(T) * Buffer::GetSize();
+            return Buffer::GetSize() / sizeof(T);
         }
 };

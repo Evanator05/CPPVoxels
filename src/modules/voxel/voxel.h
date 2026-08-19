@@ -57,9 +57,9 @@ struct ContreeNode {
         return voxel_data[index];
     }
 
-
     bool IsVoxel(size_t index) { // if true the node has a voxel data, if false the value is a node
         return (isVoxelMask >> index) & 1ULL;
+        
     }
 
     void SetVoxel(size_t index, Voxel value) {
@@ -89,15 +89,20 @@ struct ContreeNode {
 
 struct Chunk {
     glm::ivec3 position{}; // the position in chunk space of this chunk
-    uint32_t flags = 0; // flags about the chunk
+    //alignas(16) uint32_t flags = 0; // flags about the chunk
     Relptr<ContreeDataBase> contree_node{};
 };
 
 using AllocatedChunksBase = RelptrBaseVector<RELPTR_TAG(ac), Chunk>;
 
+struct ChunkPositionsHeader {
+    alignas(16) glm::ivec3 position{};
+    alignas(16) glm::uvec3 size{};
+};
+
 struct ChunkPositions {
-    glm::ivec3 position{};
-    glm::uvec3 size{};
+    alignas(16) glm::ivec3 position{};
+    alignas(16) glm::uvec3 size{};
     Relptr<AllocatedChunksBase> *chunks = nullptr; // an array of indicies into a chunks array
 
     uint32_t get_size(void) { return size.x*size.y*size.z; }

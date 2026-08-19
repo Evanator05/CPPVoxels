@@ -3,6 +3,7 @@
 #include "engine.h"
 
 #include <vector>
+#include <functional>
 
 #include "glm/vec3.hpp"
 
@@ -38,15 +39,18 @@ class VoxelManager : public EngineModule {
         void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
         void FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
 
+        void FillSDF(Voxel voxel, std::function<float(glm::vec3 pos)>);
+        void FillSDF(Relptr<ContreeDataBase> node, Voxel voxel, std::function<float(glm::vec3 pos)>);
+
         void GenerateChunkOccupancyMap(void);
         
         size_t GetChunkDataAllocatedBytes(void) const; // returns allocated data byte count
 
         std::string DumpContreeGraph(uint32_t rootIndex);
 
-    private:
         std::vector<ContreeNode> contree_data{};
-        std::vector<uint32_t> free_contree_indicies{};
         std::vector<Chunk> allocated_chunks{};
         ChunkPositions chunk_occupancy{};
+    private:
+        std::vector<uint32_t> free_contree_indicies{};  
 };

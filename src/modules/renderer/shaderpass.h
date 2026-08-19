@@ -4,7 +4,7 @@
 
 class ShaderPass {
     public:
-        ShaderPass(SDL_GPUDevice *device);
+        ShaderPass(SDL_GPUDevice *device) : device(device) {};
         ~ShaderPass();
 
         virtual void Create(void) = 0;

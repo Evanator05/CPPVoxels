@@ -1,0 +1,46 @@
+#include "raytrace.slangh"
+
+[[vk::binding(0, 0)]]
+StructuredBuffer<ContreeNode> contreeNodes;
+
+[[vk::binding(1, 0)]]
+StructuredBuffer<Chunk> chunks;
+
+[[vk::binding(2, 0)]]
+StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+
+[[vk::binding(3, 0)]]
+StructuredBuffer<uint32_t> chunkPositions;
+
+[[vk::binding(4, 0)]]
+StructuredBuffer<float3> playerPosition;
+
+[[vk::binding(0, 1)]]
+[format("r32f")]
+RWTexture2D<float> depthImage;
+
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
+{
+    int2 pos = int2(gl_GlobalInvocationID.xy);
+
+    uint imgW, imgH;
+    depthImage.GetDimensions(imgW, imgH);
+    int2 imgSize = int2(imgW, imgH);
+
+    if (pos.x >= imgSize.x || pos.y >= imgSize.y) return;
+
+    float maxDepth = imgSize.y * 0.5;
+
+    float2 ndc = GetNDC(pos, imgSize);
+
+    Ray ray;
+    ray.origin = playerPosition[0];
+    ray.direction = normalize(float3(ndc, 1));
+
+    float3 color = float3(0, 0, 0);
+    TraceResult result = TraceWorld(ray, maxDepth, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+
+    depthImage[pos] = min(max(result.depth-1, 0), maxDepth);
+}

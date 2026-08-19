@@ -21,27 +21,6 @@ void Test::Init() {
         Print(output);
     });
 
-    VoxelManager &vm = GetModule<VoxelManager>();
-    Relptr<AllocatedChunksBase> chunk_index = vm.AllocateChunk(glm::ivec3(0, 0, 0));
-    vm.GenerateChunkOccupancyMap();
-    Voxel v{};
-    v.set_r('R');
-    v.set_g('G');
-    v.set_b('B');
-    v.set_solid(true);
-    // for(int x = 0; x < 4; x++) {
-    //    for(int y = 0; y < 4; y++) {
-    //         for(int z = 0; z < 4; z++) { 
-    //             vm.SetVoxel(glm::ivec3(x, y, z), v);
-    //         }
-    //     }
-    // }
-    //vm.SetVoxel(glm::ivec3(0), v);
-    vm.FillVoxels(glm::ivec3(0), glm::ivec3(31), v);
-
-    console.Log(vm.DumpContreeGraph(0), Console::LogLevel::Info);
-    Voxel v2 = vm.GetVoxel(glm::ivec3(0,0,0));
-    console.Log(v2.to_string(), Console::LogLevel::Info);
 }
 
 void Test::Process() {

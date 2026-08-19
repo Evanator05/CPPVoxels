@@ -4,11 +4,62 @@
 #include <stdexcept>
 
 #include "gui.h"
+#include "vulkan/vulkan.h"
+void InitDevice(SDL_GPUDevice*& device, SDL_Window* window)
+{
+    VkPhysicalDeviceFeatures features10{};
+    features10.shaderInt64 = VK_TRUE;
 
-void InitDevice(SDL_GPUDevice *&device, SDL_Window *window) {
-    device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
-    if (!device) throw std::runtime_error("Failed to create GPU device");
-    SDL_ClaimWindowForGPUDevice(device, window);
+    VkPhysicalDeviceVulkan12Features features12{};
+    features12.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+
+    features12.shaderInt8 = VK_TRUE;
+    features12.bufferDeviceAddress = VK_TRUE;
+
+    SDL_GPUVulkanOptions vulkanOptions{};
+    vulkanOptions.vulkan_api_version = VK_API_VERSION_1_2;
+
+    vulkanOptions.feature_list = &features12;
+
+    vulkanOptions.vulkan_10_physical_device_features =
+        &features10;
+
+    SDL_PropertiesID props = SDL_CreateProperties();
+
+    SDL_SetStringProperty(
+        props,
+        SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
+        "vulkan"
+    );
+
+    SDL_SetBooleanProperty(
+        props,
+        SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN,
+        true
+    );
+
+    SDL_SetPointerProperty(
+        props,
+        SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER,
+        &vulkanOptions
+    );
+
+    device = SDL_CreateGPUDeviceWithProperties(props);
+
+    SDL_DestroyProperties(props);
+
+    if (!device)
+        throw std::runtime_error(
+            std::string("Failed to create GPU device: ") +
+            SDL_GetError()
+        );
+
+    if (!SDL_ClaimWindowForGPUDevice(device, window))
+        throw std::runtime_error(
+            std::string("Failed to claim window: ") +
+            SDL_GetError()
+        );
 }
 
 void Renderer::Init() {

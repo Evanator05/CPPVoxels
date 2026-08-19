@@ -10,8 +10,18 @@ class PushConstant : public IExecutableResource {
         void Destroy(void) override;
         
         void Execute(SDL_GPUCommandBuffer *cmd) override {
-            SDL_PushGPUComputeUniformData(cmd, 0, &value, sizeof(T));
+            SDL_PushGPUComputeUniformData(cmd, slot, &value, sizeof(T));
         }
-
+        uint32_t slot;
         T value;
 };
+
+template<typename T>
+void PushConstant<T>::Create()
+{
+}
+
+template<typename T>
+void PushConstant<T>::Destroy()
+{
+}

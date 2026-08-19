@@ -1,0 +1,56 @@
+static const uint32_t POINTER_EMPTY = 0xFFFFFFFF;
+
+struct Voxel {
+    static const int32_t COLORCHANNEL = 0b00011111;
+    static const int32_t SOLID = 0b1000000000000000;
+
+    int32_t data;
+
+    float3 color() {
+        return float3(
+                   float(data & COLORCHANNEL),
+                   float((data >> 5) & COLORCHANNEL),
+                   float((data >> 10) & COLORCHANNEL)
+                   ) / float(COLORCHANNEL); // divide by 31 to make values 0-1
+    }
+
+    bool solid() {
+        return bool(data & SOLID);
+    }
+}
+
+struct ContreeNode {
+    static const uint8_t NODE_WIDTH = 4;
+    static const uint8_t MAX_DEPTH = 3;
+
+    uint64_t isVoxelMask;
+    uint32_t child_nodes[NODE_WIDTH * NODE_WIDTH * NODE_WIDTH];
+
+    bool is_voxel(uint8_t index) {
+        return bool((isVoxelMask >> index) & 1ull);
+    }
+
+    Voxel get_voxel(uint8_t index) {
+        return (Voxel)child_nodes[index];
+    }
+
+    uint32_t get_ptr(uint8_t index) {
+        return child_nodes[index];
+    }
+}
+
+struct Chunk {
+    static const uint8_t CHUNK_WIDTH = 64;
+    static const uint32_t FLAG_EXISTS = 0b00000000000000000000000000000001;
+    static const uint32_t FLAG_DIRTY = 0b00000000000000000000000000000010;
+
+    int3 position; // the position in chunk space of this chunk
+    //uint32_t flags;     // flags about the chunk
+    uint32_t contree_node;
+};
+
+struct ChunkPositionsHeader {
+    int3 position;
+    uint3 size;
+    uint32_t get_size(void) { return size.x * size.y * size.z; }
+};

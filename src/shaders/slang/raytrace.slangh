@@ -1,0 +1,388 @@
+#include "voxel.slangh"
+#define MAX_RAY_STEPS 1024
+
+struct Ray {
+    float3 origin;
+    float3 direction;
+}
+
+struct AABB {
+    int3 pos;
+    uint3 size;
+};
+
+struct AABBIntersection {
+    bool hit;
+    float near;
+    float far;
+};
+
+struct TraceResult {
+    bool hit;
+    int3 position;
+    float depth;
+    float3 normal;
+    Voxel voxel;
+}
+
+struct DDAState {
+    int3 pos;
+    float3 delta;
+    int3 rayStep;
+    float3 sideDist;
+    bool3 mask;
+    float entryDepth;
+};
+
+float Min3(float3 v) {
+    return min(v.x, min(v.y, v.z));
+}
+
+bool3 MinMask(float3 v) {
+    float m = Min3(v);
+    return bool3(
+        v.x <= m,
+        v.y <= m,
+        v.z <= m
+    );
+}
+
+DDAState InitDDA(Ray ray, float cellSize, float3 gridOrigin, float startDepth, int3 startCell, bool3 entryMask) {
+    DDAState s;
+
+    s.rayStep = int3(sign(ray.direction));
+    s.pos = startCell;
+
+    s.delta = abs(cellSize / ray.direction);
+
+    float3 nextBoundary;
+
+    if (s.rayStep.x > 0)
+        nextBoundary.x = float(s.pos.x + 1);
+    else if (s.rayStep.x < 0)
+        nextBoundary.x = float(s.pos.x);
+    else
+        nextBoundary.x = float.maxValue;
+
+    if (s.rayStep.y > 0)
+        nextBoundary.y = float(s.pos.y + 1);
+    else if (s.rayStep.y < 0)
+        nextBoundary.y = float(s.pos.y);
+    else
+        nextBoundary.y = float.maxValue;
+
+    if (s.rayStep.z > 0)
+        nextBoundary.z = float(s.pos.z + 1);
+    else if (s.rayStep.z < 0)
+        nextBoundary.z = float(s.pos.z);
+    else
+        nextBoundary.z = float.maxValue;
+
+    float3 boundaryPosition =
+        gridOrigin +
+        nextBoundary * cellSize;
+
+    s.sideDist =
+        (boundaryPosition - ray.origin) /
+        ray.direction;
+    const float DEPTH_EPS = 1e-5;
+
+    if (s.sideDist.x < startDepth)
+        s.sideDist.x = startDepth;
+
+    if (s.sideDist.y < startDepth)
+        s.sideDist.y = startDepth;
+
+    if (s.sideDist.z < startDepth)
+        s.sideDist.z = startDepth;
+
+    s.mask = entryMask;
+    s.entryDepth = startDepth;
+
+    return s;
+}
+
+void AdvanceDDA(inout DDAState s) {
+    bool3 mask = MinMask(s.sideDist);
+    float nextDepth = Min3(s.sideDist);
+    s.pos += int3(mask) * s.rayStep;
+    s.entryDepth = nextDepth;
+    s.sideDist += float3(mask) * s.delta;
+    s.mask = mask;
+}
+
+float3 DDAEntryNormal(DDAState s) {
+    float3 normal = -float3(s.rayStep) * float3(s.mask);
+
+    float len = length(normal);
+
+    if (len > 0.0)
+        return normal / len;
+
+    return float3(0.0);
+}
+TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> contreeNodes, StructuredBuffer<Chunk> chunks, StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader, StructuredBuffer<uint32_t> chunkPositions) {
+    TraceResult result;
+
+    result.hit = false;
+    result.position = int3(0);
+    result.depth = float.maxValue;
+    result.normal = ray.direction;
+    result.voxel = Voxel(0);
+
+    AABB boundingBox = AABB(
+        chunkPositionsHeader[0].position * Chunk.CHUNK_WIDTH,
+        chunkPositionsHeader[0].size * Chunk.CHUNK_WIDTH
+    );
+
+    AABBIntersection intersection =
+        IntersectAABB(ray, boundingBox);
+
+    if (!intersection.hit)
+        return result;
+
+    float3 boxMin = float3(boundingBox.pos);
+    float3 boxMax = float3(boundingBox.pos + boundingBox.size);
+
+    float3 t0 = (boxMin - ray.origin) / ray.direction;
+    float3 t1 = (boxMax - ray.origin) / ray.direction;
+
+    float3 tEnter = min(t0, t1);
+
+    bool3 entryMask = bool3(
+        abs(tEnter.x - intersection.near) <= 1e-5,
+        abs(tEnter.y - intersection.near) <= 1e-5,
+        abs(tEnter.z - intersection.near) <= 1e-5
+    );
+
+    const float chunkSize = float(Chunk.CHUNK_WIDTH);
+
+    float3 regionOrigin = float3(chunkPositionsHeader[0].position) * chunkSize;
+    float3 entryPosition = ray.origin + ray.direction * (intersection.near + 1e-4);
+    int3 rootCell = int3(floor((entryPosition - regionOrigin) /chunkSize));
+
+    DDAState ddaState =
+        InitDDA(
+            ray,
+            chunkSize,
+            regionOrigin,
+            intersection.near,
+            rootCell,
+            entryMask
+    );
+
+    for (int i = 0; i < MAX_RAY_STEPS; ++i) {
+        if (any(ddaState.pos < 0) || any(ddaState.pos >= int3(chunkPositionsHeader[0].size))) break;
+        if (maxDepth >= 0.0 && ddaState.entryDepth > maxDepth) break;
+
+        int3 localChunkPos = ddaState.pos;
+
+        uint chunkIndex = chunkPositions[localChunkPos.x + localChunkPos.y * chunkPositionsHeader[0].size.x + localChunkPos.z * chunkPositionsHeader[0].size.x * chunkPositionsHeader[0].size.y];
+
+        if (chunkIndex != POINTER_EMPTY) {
+            TraceResult chunkResult =
+                TraceChunk(
+                    chunks[chunkIndex],
+                    ray,
+                    maxDepth,
+                    ddaState.entryDepth,
+                    ddaState.mask,
+                    contreeNodes,
+                    chunks,
+                    chunkPositionsHeader,
+                    chunkPositions);
+
+            if (chunkResult.hit) {
+                result.hit = true;
+                result.depth = chunkResult.depth;
+                result.voxel = chunkResult.voxel;
+                result.normal = chunkResult.normal;
+                result.position =
+                    chunkResult.position +
+                    chunks[chunkIndex].position *
+                        Chunk.CHUNK_WIDTH;
+
+                return result;
+            }
+        }
+        AdvanceDDA(ddaState);
+    }
+    return result;
+}
+
+TraceResult TraceChunk(Chunk chunk, Ray ray, float maxDepth, float startDepth, bool3 entryMask, StructuredBuffer<ContreeNode> contreeNodes, StructuredBuffer<Chunk> chunks, StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader, StructuredBuffer<uint32_t> chunkPositions) {
+    TraceResult result;
+
+    result.hit = false;
+    result.position = int3(0);
+    result.depth = float.maxValue;
+    result.normal = ray.direction;
+    result.voxel = Voxel(0);
+
+    const int N = ContreeNode.NODE_WIDTH;
+    const int MAX_DEPTH = ContreeNode.MAX_DEPTH;
+
+    float chunkWidth = float(Chunk.CHUNK_WIDTH);
+
+    Ray localRay = ray;
+    localRay.origin -= float3(chunk.position) * chunkWidth;
+
+    uint32_t nodeIndices[ContreeNode.MAX_DEPTH];
+
+    int3 nodeOrigins[ContreeNode.MAX_DEPTH];
+
+    DDAState stack[ContreeNode.MAX_DEPTH];
+    int stackPosition = 0;
+
+    float rootCellSize = chunkWidth / float(N);
+    float3 chunkLocalEntry = localRay.origin + localRay.direction * startDepth;
+    float3 rootClassifyPosition = chunkLocalEntry + localRay.direction * 1e-4;
+
+    int3 rootCell = clamp(
+        int3(floor(rootClassifyPosition / rootCellSize)),
+        int3(0),
+        int3(N - 1)
+    );
+
+    DDAState rootDDA =
+            InitDDA(
+            localRay,
+            rootCellSize,
+            float3(0.0),
+            startDepth,
+            rootCell,
+            entryMask);
+
+    stack[0] = rootDDA;
+    nodeIndices[0] = chunk.contree_node;
+    nodeOrigins[0] = int3(0);
+
+    for (int iteration = 0; iteration < MAX_RAY_STEPS; ++iteration) {
+        DDAState st =
+            stack[stackPosition];
+
+        float levelCellSize =
+            chunkWidth /
+            pow(
+                float(N),
+                float(stackPosition + 1)
+            );
+
+        int3 nodeOrigin = nodeOrigins[stackPosition];
+
+        if (any(st.pos < 0) || any(st.pos >= N)) {
+            if (stackPosition == 0) break;
+            stackPosition--;
+
+            DDAState parent = stack[stackPosition];
+            AdvanceDDA(parent);
+            stack[stackPosition] = parent;
+            continue;
+        }
+
+        uint8_t childIndex =
+            uint8_t(
+                st.pos.x +
+                st.pos.y * N +
+                st.pos.z * N * N
+            );
+
+        uint32_t nodeIdx = nodeIndices[stackPosition];
+        ContreeNode node = contreeNodes[nodeIdx];
+
+        if (node.is_voxel(childIndex)) {
+            Voxel v = node.get_voxel(childIndex);
+            if (v.solid()) {
+                float hitDepth = st.entryDepth;
+
+                if (maxDepth >= 0.0 && hitDepth > maxDepth) break;
+
+                int3 voxelPosition = nodeOrigin * N + st.pos;
+
+                result.hit = true;
+                result.voxel = v;
+                result.position = voxelPosition;
+                result.depth = hitDepth;
+                result.normal = DDAEntryNormal(st);
+
+                return result;
+            }
+
+            AdvanceDDA(st);
+
+            stack[stackPosition] = st;
+
+            continue;
+        }
+
+        if (stackPosition + 1 >= MAX_DEPTH) {
+            AdvanceDDA(st);
+            stack[stackPosition] = st;
+            continue;
+        }
+
+        uint32_t childPtr = node.get_ptr(childIndex);
+        float childStartDepth = st.entryDepth;
+        bool3 childEntryMask = st.mask;
+        int3 childOrigin = nodeOrigin * N + st.pos;
+        float3 childOriginWorld = float3(childOrigin) * levelCellSize;
+        float childCellSize = levelCellSize / float(N);
+
+        float3 entryLocal =(
+        localRay.origin +
+             localRay.direction * st.entryDepth -
+             childOriginWorld
+        ) / childCellSize;
+
+        int3 childStartCell =
+            clamp(
+                int3(floor(entryLocal)),
+                int3(0),
+                int3(N - 1)
+        );
+
+        stack[stackPosition + 1] =
+            InitDDA(
+                localRay,
+                childCellSize,
+                childOriginWorld,
+                st.entryDepth,
+                childStartCell,
+                st.mask
+        );
+
+        nodeIndices[stackPosition + 1] = childPtr;
+        nodeOrigins[stackPosition + 1] = childOrigin;
+        stackPosition++;
+    }
+
+    return result;
+}
+
+AABBIntersection IntersectAABB(Ray ray, AABB aabb) {
+    float3 invDir = 1.0 / ray.direction;
+
+    float3 t0 = (float3(aabb.pos) - ray.origin) * invDir;
+    float3 t1 = (float3(aabb.pos + aabb.size) - ray.origin) * invDir;
+
+    float3 tMin3 = min(t0, t1);
+    float3 tMax3 = max(t0, t1);
+
+    float tmin = max(max(tMin3.x, tMin3.y),tMin3.z);
+    float tmax = min(min(tMax3.x, tMax3.y),tMax3.z);
+
+    AABBIntersection result;
+    result.near = max(tmin, 0.0);
+    result.far = tmax;
+    result.hit = tmax >= result.near;
+    return result;
+}
+
+float2 GetNDC(int2 pos, int2 size) {
+    float2 uv = (float2(pos) + 0.5) / float2(size);
+    float2 ndc = uv * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+    float aspect = float(size.x) / float(size.y);
+    ndc.x *= aspect;
+    return ndc;
+}
