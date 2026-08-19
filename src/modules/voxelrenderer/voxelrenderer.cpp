@@ -210,6 +210,7 @@ void VoxelRenderer::Process() {
     if (input.IsHeld("down")) {
         pos.y -= deltaTime;
     }
+
     posBuffer->Upload(&pos, 1);
 }
 

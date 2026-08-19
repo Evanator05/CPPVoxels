@@ -135,9 +135,7 @@ TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> co
         chunkPositionsHeader[0].size * Chunk.CHUNK_WIDTH
     );
 
-    AABBIntersection intersection =
-        IntersectAABB(ray, boundingBox);
-
+    AABBIntersection intersection = IntersectAABB(ray, boundingBox);
     if (!intersection.hit)
         return result;
 
