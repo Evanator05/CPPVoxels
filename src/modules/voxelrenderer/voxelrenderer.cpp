@@ -7,7 +7,6 @@
 #include "console.h"
 #include "modules/voxel/voxelmanager.h"
 
-#include "shaders/test.h"
 #include "shaders/depth.h"
 #include "shaders/upscale.h"
 #include "shaders/primary.h"
