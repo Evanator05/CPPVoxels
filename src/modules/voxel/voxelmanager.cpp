@@ -40,25 +40,19 @@ Relptr<ContreeDataBase> VoxelManager::AllocateContreeNode() {
 }
 
 void VoxelManager::FreeContreeNode(Relptr<ContreeDataBase> root) {
-    FixedStack<Relptr<ContreeDataBase>, CONTREE_MAX_DEPTH> stack;
+    if (root == nullptr) return;
 
-    stack.push(root);
+    ContreeNode &node = *root;
 
-    while (stack.size()) {
-        Relptr<ContreeDataBase> index = stack.pop();
-
-        ContreeNode &node = *index;
-
-        if (node.isVoxelMask != CONTREE_VOXEL_MASK_FULL) {
-            for (size_t i = 0; i < CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH; i++) {
-                if (node.IsVoxel(i)) continue;
-                stack.push(node.GetPtr(i));
-            }
+    if (node.isVoxelMask != CONTREE_VOXEL_MASK_FULL) {
+        for (size_t i = 0; i < CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH; i++) {
+            if (node.IsVoxel(i)) continue;
+            FreeContreeNode(node.GetPtr(i));
         }
-
-        node.isVoxelMask = CONTREE_VOXEL_MASK_FULL;
-        free_contree_indicies.push_back(index.offset);
     }
+
+    node.isVoxelMask = CONTREE_VOXEL_MASK_FULL;
+    free_contree_indicies.push_back(root.offset);
 }
 
 Relptr<AllocatedChunksBase> VoxelManager::AllocateChunk(const glm::ivec3 position) {
@@ -243,13 +237,15 @@ void VoxelManager::FillNodeUniform(Relptr<ContreeDataBase> node, Voxel voxel) {
         for (i.y = 0; i.y < CONTREE_NODE_WIDTH; i.y++)
             for (i.z = 0; i.z < CONTREE_NODE_WIDTH; i.z++) {
                 uint16_t index = node->GetIndex(i);
-                if (!node->IsVoxel(index)) FreeContreeNode(index); // free existing child subtree before overwriting
+                // FIX 1: pass the actual child Relptr (via GetPtr), not the raw slot index
+                if (!node->IsVoxel(index)) FreeContreeNode(node->GetPtr(index));
                 node->SetVoxel(index, voxel);
             }
 }
 
 void VoxelManager::FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
     if (node == nullptr) return;
+    // FIX 3: allow execution at depth == CONTREE_MAX_DEPTH so the final level actually gets written
     if (depth > CONTREE_MAX_DEPTH) return;
 
     uint32_t node_width = CHUNK_WIDTH;
@@ -266,7 +262,8 @@ void VoxelManager::FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::
                 if (!Intersects(child_pos, child_end, start_position, end_position)) continue;
 
                 if (FullyContains(start_position, end_position, child_pos, child_end)) {
-                    if (!node->IsVoxel(index)) FreeContreeNode(index);
+                    // FIX 1: pass the actual child Relptr (via GetPtr), not the raw slot index
+                    if (!node->IsVoxel(index)) FreeContreeNode(node->GetPtr(index));
                     node->SetVoxel(index, voxel);
                     continue;
                 }
@@ -281,14 +278,16 @@ void VoxelManager::FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::
                     }
                     FillVoxels(node->GetPtr(index), depth + 1, child_pos, start_position, end_position, voxel);
                 } else {
-                    // nothing left to subdivide
-                    if (!node->IsVoxel(index)) FreeContreeNode(index);
+                    // nothing left to subdivide (depth == CONTREE_MAX_DEPTH: each child is exactly one voxel)
+                    // FIX 1: pass the actual child Relptr (via GetPtr), not the raw slot index
+                    if (!node->IsVoxel(index)) FreeContreeNode(node->GetPtr(index));
                     node->SetVoxel(index, voxel);
                 }
             }
         }
     }
 }
+
 
 void VoxelManager::GenerateChunkOccupancyMap() {
     if (allocated_chunks.empty()) {

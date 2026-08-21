@@ -143,7 +143,7 @@ void Console::Log(const std::string& message, LogLevel level = Console::LogLevel
         std::chrono::system_clock::now()
     });
 
-    if (messages.size() > 1000)
+    if (messages.size() > 100)
         messages.erase(messages.begin());
 }
 

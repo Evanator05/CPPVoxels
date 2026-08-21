@@ -53,5 +53,6 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
         color = result.voxel.color() * light;
     }
 
+    //depthImage[pos] = max(result.depth, 0);
     albedoImage[pos] = float4(color, 1);
 }

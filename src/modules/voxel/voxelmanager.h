@@ -19,7 +19,7 @@ class VoxelManager : public EngineModule {
 
         Relptr<ContreeDataBase> AllocateContreeNode(void);
         void FreeContreeNode(Relptr<ContreeDataBase> root);
-
+        //void FreeContreeNode(Relptr<ContreeDataBase> root);
         Relptr<AllocatedChunksBase> AllocateChunk(glm::ivec3 position);
         void FreeChunk(Relptr<AllocatedChunksBase> chunk);
 
