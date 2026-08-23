@@ -151,3 +151,14 @@ bool Input::IsReleased(const char *name) {
 glm::vec2 Input::GetMouseMovement() {
     return mouse_rel;
 }
+
+void Input::SetMouseLock(bool lock) {
+    Window &window = GetModule<Window>();
+    SDL_SetWindowMouseGrab(window.GetWindow(), lock);
+    SDL_SetWindowRelativeMouseMode(window.GetWindow(), lock);
+}
+
+bool Input::GetMouseLock() {
+    Window &window = GetModule<Window>();
+    return SDL_GetWindowMouseGrab(window.GetWindow());
+}

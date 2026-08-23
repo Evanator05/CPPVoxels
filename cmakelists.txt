@@ -29,7 +29,7 @@ find_program(SLANGC
     REQUIRED
 )
 
-file(GLOB_RECURSE SLANG_SRC_FILES
+file(GLOB_RECURSE SLANG_SRC_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/shaders/slang/*.slang"
 )
 
@@ -40,8 +40,6 @@ set(SHADER_HEADERS)
 foreach(SLANG_SRC ${SLANG_SRC_FILES})
     get_filename_component(FILE_NAME ${SLANG_SRC} NAME_WE)
     set(HDR ${SHADER_HEADER_DIR}/${FILE_NAME}.h)
-
-    # Variable name inside the header
     set(VAR_NAME ${FILE_NAME}_spirv)
 
     add_custom_command(
@@ -54,7 +52,9 @@ foreach(SLANG_SRC ${SLANG_SRC_FILES})
             -source-embed-style u32
             -source-embed-name ${VAR_NAME}
             -o ${HDR}
-        DEPENDS ${SLANG_SRC}
+        DEPENDS
+            ${SLANG_SRC}
+            ${SLANG_SRC_FILES}
         COMMENT "Compiling ${SLANG_SRC} -> ${HDR}"
         VERBATIM
     )

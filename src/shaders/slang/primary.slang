@@ -1,5 +1,11 @@
 #include "raytrace.slangh"
 
+struct CameraTransform {
+    int3 chunkPos;
+    float3 localPos;
+    float3x3 rotation;
+};
+
 [[vk::binding(0, 0)]]
 StructuredBuffer<ContreeNode> contreeNodes;
 
@@ -13,7 +19,7 @@ StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
 StructuredBuffer<uint32_t> chunkPositions;
 
 [[vk::binding(4, 0)]]
-StructuredBuffer<float3> playerPosition;
+StructuredBuffer<CameraTransform> cameraTransform;
 
 [[vk::binding(0, 1)]]
 [format("r32f")]
@@ -37,9 +43,10 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
 
     float2 ndc = GetNDC(pos, imgSize);
 
+    CameraTransform camera = cameraTransform[0];
     Ray ray;
-    ray.origin = playerPosition[0];
-    ray.direction = normalize(float3(ndc, 1));
+    ray.origin = camera.localPos;
+    ray.direction = normalize(mul(camera.rotation, float3(ndc, 1.0)));
 
     ray.origin += ray.direction * depthImage[pos];
 
@@ -53,6 +60,6 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
         color = result.voxel.color() * light;
     }
 
-    //depthImage[pos] = max(result.depth, 0);
+    depthImage[pos] = max(result.depth, 0);
     albedoImage[pos] = float4(color, 1);
 }

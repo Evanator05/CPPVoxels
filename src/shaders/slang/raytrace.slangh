@@ -18,7 +18,6 @@ struct AABBIntersection {
     float far;
     float3 t0;
     float3 t1;
-
 };
 
 struct TraceResult {
@@ -38,7 +37,6 @@ struct DDAState {
     float entryDepth;
 };
 
-
 float Min3(float3 v) {
     return min(v.x, min(v.y, v.z));
 }
@@ -51,7 +49,6 @@ bool3 MinMask(float3 v) {
     float m = min(v.x, min(v.y, v.z));
     return v <= m;
 }
-
 
 DDAState InitDDA(Ray ray, float cellSize, float3 gridOrigin, float startDepth, int3 startCell, bool3 entryMask) {
     DDAState s;
@@ -186,8 +183,6 @@ TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> co
             regionSize.y +
             regionSize.z
         );
-
-    maxSteps = min(maxSteps, MAX_RAY_STEPS);
 
     for (int i = 0; i < maxSteps; ++i) {
         if (any(ddaState.pos < 0) || any(ddaState.pos >= int3(regionSize))) break;
