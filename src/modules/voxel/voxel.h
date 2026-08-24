@@ -1,5 +1,9 @@
+#pragma once
+
 #include <cstdint>
+#include <string>
 #include "relptr/relptr.hpp"
+#include "glm/vec3.hpp"
 
 static constexpr uint8_t CONTREE_NODE_WIDTH = 4;
 static constexpr uint8_t CONTREE_MAX_DEPTH = 3;

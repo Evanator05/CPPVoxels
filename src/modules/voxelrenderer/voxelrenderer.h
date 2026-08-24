@@ -22,6 +22,7 @@ class VoxelRenderer : public EngineModule {
             alignas(16) glm::vec3 rotation0;
             alignas(16) glm::vec3 rotation1;
             alignas(16) glm::vec3 rotation2;
+            alignas(16) float time;
         };
 
     private:

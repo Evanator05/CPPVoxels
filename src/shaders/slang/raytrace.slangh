@@ -347,14 +347,21 @@ TraceResult TraceChunk(Chunk chunk, Ray ray, float maxDepth, float startDepth, b
             if (v.solid()) {
                 float hitDepth = st.entryDepth;
                 if (maxDepth >= 0.0 && hitDepth > maxDepth) break;
-                
-                int3 voxelPosition = nodeOrigin * N + st.pos;
+
+                result.normal = -float3(st.rayStep) * float3(st.mask);
+
+                float3 hitPosition =
+                    localRay.origin +
+                    localRay.direction * hitDepth -
+                    result.normal * 0.5;
+
+                int3 voxelPosition = int3(floor(hitPosition));
 
                 result.hit = true;
                 result.voxel = v;
                 result.position = voxelPosition;
                 result.depth = hitDepth;
-                result.normal = DDAEntryNormal(st);
+                
 
                 return result;
             }
