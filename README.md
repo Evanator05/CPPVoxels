@@ -24,7 +24,7 @@
 - [ ] Import/export tooling
 
 ### Gameplay Features
-- [ ] CPU size voxel ray querying
+- [ ] CPU side voxel ray querying
 - [ ] Physics integration
 - [ ] Scene/World Manager
 - [ ] Character Controller
