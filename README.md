@@ -8,20 +8,13 @@
 - [x] Half resolution depth pre-pass
 - [x] Sparse voxel 64 tree chunks
 - [ ] Dirty only data uploading
-
-### Optimization
-- [ ] Optimize HDDA
+- [ ] Non-Axis-Aligned voxel models
 
 ### Lighting & Shading
 - [ ] Per-voxel visibility hashmap for lighting
 - [ ] Per-voxel lighting model
 - [ ] Emissive voxels
 - [ ] Global illumination
-
-### Voxel Assets
-- [ ] Voxel model support (e.g. `.vox`)
-- [ ] Instanced voxel models
-- [ ] Import/export tooling
 
 ### Gameplay Features
 - [ ] CPU side voxel ray querying
