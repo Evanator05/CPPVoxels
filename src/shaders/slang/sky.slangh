@@ -1,0 +1,120 @@
+#include "FastNoiseLite.slangh"
+
+float3 skyColor(float3 dir, float3 pos, float time, float3 sundir)
+{
+    dir = normalize(dir);
+    sundir = normalize(sundir);
+
+    // Sky gradient
+    float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+
+    float3 horizon = float3(0.9, 0.65, 0.45);
+    float3 skyMid  = float3(0.35, 0.55, 0.95);
+    float3 skyTop  = float3(0.15, 0.35, 0.85);
+
+    float3 sky = lerp(
+        horizon,
+        skyMid,
+        smoothstep(0.0, 0.4, h)
+    );
+
+    sky = lerp(
+        sky,
+        skyTop,
+        pow(h, 1.5)
+    );
+
+    // Sun
+    float sunDot = dot(dir, sundir);
+
+    // Bright, sharp sun disc
+    float sunDisc = smoothstep(0.9995, 0.9999, sunDot);
+
+    // Softer atmospheric glow around the sun
+    float sunGlow = pow(max(sunDot, 0.0), 64.0);
+
+    float3 sunColor = float3(1.0, 0.75, 0.4);
+
+    sky += sunColor * sunGlow * 0.35;
+    sky += sunColor * sunDisc * 20.0;
+
+    // ============================================================
+    // Cloud plane
+    // ============================================================
+
+    float cloudHeight = 1000.0;
+
+    // Avoid unstable intersection when looking almost horizontally.
+    if (abs(dir.y) < 0.0001)
+        return sky;
+
+    // Ray-plane intersection.
+    float t = (cloudHeight - pos.y) / dir.y;
+
+    // If t is negative, the cloud plane is behind the camera.
+    //
+    // This handles both cases:
+    //
+    // Below clouds:
+    //   looking up   -> t > 0
+    //
+    // Above clouds:
+    //   looking down -> t > 0
+    //
+    // Above clouds looking up, or below clouds looking down:
+    //   t < 0 -> no cloud intersection
+    if (t <= 0.0)
+        return sky;
+
+    float3 worldHit = pos + dir * t;
+
+    // Cloud UVs
+    float2 uv = worldHit.xz * 0.0004;
+
+    // Wind motion
+    uv += float2(30.0, 15.0) * time * 0.0004;
+
+    // ============================================================
+    // FastNoiseLite
+    // ============================================================
+
+    fnl_state noise;
+
+    noise.seed = 1337;
+    noise.frequency = 1.0;
+    noise.noise_type = FNL_NOISE_OPENSIMPLEX2;
+    noise.fractal_type = FNL_FRACTAL_FBM;
+    noise.octaves = 5;
+    noise.lacunarity = 2.0;
+    noise.gain = 0.5;
+
+    float n1 = fnlGetNoise2D(
+        noise,
+        uv.x,
+        uv.y
+    );
+
+    float n2 = fnlGetNoise2D(
+        noise,
+        uv.x * 3.0,
+        uv.y * 3.0
+    ) * 0.4;
+
+    float n = n1 + n2 * sin(time * 0.1);
+
+    n = n * 0.5 + 0.5;
+
+    float clouds = smoothstep(
+        0.55,
+        0.75,
+        n
+    );
+
+    float3 cloudColor = float3(1.0, 1.0, 1.0);
+
+    return lerp(
+        sky,
+        cloudColor,
+        clouds * 0.8
+    );
+}

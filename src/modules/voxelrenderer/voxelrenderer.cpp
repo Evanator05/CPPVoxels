@@ -139,7 +139,7 @@ void VoxelRenderer::Init() {
     ImGuiPass *gui = renderer.CreateShaderPass<ImGuiPass>();
     gui->destination = &renderer.swapchainTexture;
 
-    cameraTransform.localPos = {0, 0, 0};
+    cameraTransform.localPos = {0, 128, 0};
 
     window.ResizedScreen.Bind(
         [this, display, halfDepth, fullDepth](glm::ivec2 size) {
@@ -161,10 +161,11 @@ void VoxelRenderer::Process()
     input.SetMouseLock(true);
     glm::vec2 mouseMovement = input.GetMouseMovement();
 
-    float deltaTime = GetModule<DeltaTime>().Get() * 50.0f;
+    float deltaTime = GetModule<DeltaTime>().Get();
+    float moveSpeed = 50.0f;
     cameraTransform.time += deltaTime;
     if (input.IsHeld("break_block"))
-        deltaTime *= 5.0f;
+        moveSpeed *= 5.0f;
 
     // ------------------------------------------------------------
     // Camera rotation
@@ -202,30 +203,30 @@ cameraTransform.rotation2 = forward;
 
    glm::vec3 movement(0.0f);
 
-if (input.IsHeld("left"))
-    movement.x -= 1.0f;
+    if (input.IsHeld("left"))
+        movement.x -= 1.0f;
 
-if (input.IsHeld("right"))
-    movement.x += 1.0f;
+    if (input.IsHeld("right"))
+        movement.x += 1.0f;
 
-if (input.IsHeld("forward"))
-    movement.z += 1.0f;
+    if (input.IsHeld("forward"))
+        movement.z += 1.0f;
 
-if (input.IsHeld("backward"))
-    movement.z -= 1.0f;
+    if (input.IsHeld("backward"))
+        movement.z -= 1.0f;
 
-if (input.IsHeld("up"))
-    movement.y += 1.0f;
+    if (input.IsHeld("up"))
+        movement.y += 1.0f;
 
-if (input.IsHeld("down"))
-    movement.y -= 1.0f;
+    if (input.IsHeld("down"))
+        movement.y -= 1.0f;
 
-glm::vec3 worldMovement =
-    right * movement.x +
-    up * movement.y +
-    forward * movement.z;
+    glm::vec3 worldMovement =
+        right * movement.x +
+        up * movement.y +
+        forward * movement.z;
 
-cameraTransform.localPos += worldMovement * deltaTime;
+    cameraTransform.localPos += worldMovement * moveSpeed * deltaTime;
 
     // ------------------------------------------------------------
     // Upload

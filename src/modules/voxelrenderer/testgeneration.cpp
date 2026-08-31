@@ -11,159 +11,240 @@ namespace Generator {
 
 void GenerateWorld(VoxelManager& vm)
 {
-    // ============================================================
-    // WORLD
-    //
-    // 30 x 3 x 30 chunks
-    // 64 voxels per chunk
-    //
-    // 1920 x 192 x 1920 voxels
-    // ============================================================
-
     constexpr int CHUNK_SIZE = 64;
 
-    constexpr int WORLD_X = 30 * CHUNK_SIZE;
-    constexpr int WORLD_Y = 3  * CHUNK_SIZE;
-    constexpr int WORLD_Z = 30 * CHUNK_SIZE;
+    constexpr int CHUNKS_X = 16;
+    constexpr int CHUNKS_Y = 3;
+    constexpr int CHUNKS_Z = 16;
 
-    constexpr int SEA_LEVEL = 42;
+    constexpr int WORLD_X = CHUNKS_X * CHUNK_SIZE;
+    constexpr int WORLD_Y = CHUNKS_Y * CHUNK_SIZE;
+    constexpr int WORLD_Z = CHUNKS_Z * CHUNK_SIZE;
 
-    // Terrain is sampled every 4 voxels.
-    //
-    // This is a good compromise:
-    //
-    // 1x1  = extremely expensive
-    // 2x2  = smoother, more expensive
-    // 4x4  = good balance
-    // 8x8  = fast, but visibly blocky
-    //
+    constexpr int SEA_LEVEL = 40;
+
+    // Sample terrain every 4 voxels.
+    // This keeps generation reasonably cheap while still giving
+    // smooth terrain through interpolation.
     constexpr int TERRAIN_STEP = 4;
 
+    printf("\n=== GENERATING WORLD ===\n");
+
 
     // ============================================================
-    // ALLOCATE WORLD
+    // ALLOCATE CHUNKS
     // ============================================================
 
-    for (int x = 0; x < 30; ++x)
+    const int totalChunks =
+        CHUNKS_X * CHUNKS_Y * CHUNKS_Z;
+
+    int allocatedChunks = 0;
+
+    printf(
+        "Allocating %d x %d x %d chunks...\n",
+        CHUNKS_X,
+        CHUNKS_Y,
+        CHUNKS_Z
+    );
+
+    for (int x = 0; x < CHUNKS_X; ++x)
     {
-        for (int y = 0; y < 3; ++y)
+        for (int y = 0; y < CHUNKS_Y; ++y)
         {
-            for (int z = 0; z < 30; ++z)
+            for (int z = 0; z < CHUNKS_Z; ++z)
             {
-                vm.AllocateChunk(
-                    glm::ivec3(x, y, z)
-                );
+                vm.AllocateChunk(glm::ivec3(x, y, z));
+
+                ++allocatedChunks;
+
+                if (allocatedChunks % 100 == 0 ||
+                    allocatedChunks == totalChunks)
+                {
+                    printf(
+                        "  Chunks: %d / %d (%.1f%%)\n",
+                        allocatedChunks,
+                        totalChunks,
+                        allocatedChunks * 100.0f / totalChunks
+                    );
+                }
             }
         }
     }
 
+    printf("Generating chunk occupancy map...\n");
+
     vm.GenerateChunkOccupancyMap();
+
+    const glm::ivec3 worldOrigin =
+        vm.chunk_occupancy.position * CHUNK_SIZE;
+
+    printf(
+        "World origin: %d, %d, %d\n",
+        worldOrigin.x,
+        worldOrigin.y,
+        worldOrigin.z
+    );
 
 
     // ============================================================
     // MATERIALS
     // ============================================================
 
-    auto voxel =
-        [](uint8_t r,
-           uint8_t g,
-           uint8_t b,
-           bool solid = true)
+    auto MakeVoxel =
+        [](uint8_t r, uint8_t g, uint8_t b)
     {
         Voxel v{};
 
         v.set_r(r);
         v.set_g(g);
         v.set_b(b);
-        v.set_solid(solid);
+        v.set_solid(true);
 
         return v;
     };
 
-    Voxel air =
-        voxel(0, 0, 0, false);
-
-    Voxel stone =
-        voxel(14, 14, 15);
-
-    Voxel stoneDark =
-        voxel(8, 8, 9);
-
-    Voxel stoneLight =
-        voxel(20, 20, 20);
-
-    Voxel dirt =
-        voxel(16, 10, 5);
-
-    Voxel dirtDark =
-        voxel(11, 7, 4);
-
-    Voxel grass =
-        voxel(8, 24, 5);
-
-    Voxel grassDark =
-        voxel(5, 18, 4);
-
-    Voxel sand =
-        voxel(27, 23, 13);
-
-    Voxel sandDark =
-        voxel(22, 18, 10);
-
-    Voxel snow =
-        voxel(27, 28, 29);
-
-    Voxel water =
-        voxel(3, 12, 28);
-
-    Voxel wood =
-        voxel(18, 10, 4);
-
-    Voxel woodDark =
-        voxel(11, 6, 3);
-
-    Voxel leaves =
-        voxel(5, 20, 6);
-
-    Voxel leavesDark =
-        voxel(3, 14, 4);
-
-    Voxel leavesLight =
-        voxel(8, 27, 8);
-
-    Voxel brick =
-        voxel(23, 16, 10);
-
-    Voxel roof =
-        voxel(24, 5, 4);
-
-    Voxel glass =
-        voxel(8, 20, 28);
-
-    Voxel road =
-        voxel(13, 11, 8);
-
-    Voxel torch =
-        voxel(31, 20, 4);
-
-    Voxel gold =
-        voxel(28, 20, 4);
+    const Voxel stone     = MakeVoxel(14, 14, 15);
+    const Voxel stoneDark = MakeVoxel(9, 9, 10);
+    const Voxel dirt      = MakeVoxel(16, 10, 5);
+    const Voxel grass     = MakeVoxel(8, 24, 5);
+    const Voxel snow      = MakeVoxel(27, 28, 29);
+    const Voxel wood      = MakeVoxel(18, 10, 4);
+    const Voxel leaves    = MakeVoxel(5, 20, 6);
+    const Voxel water     = MakeVoxel(3, 12, 28);
 
 
     // ============================================================
-    // HELPERS
+    // HASH
     // ============================================================
 
-    auto Cube =
-        [&](glm::ivec3 a,
-            glm::ivec3 b,
-            const Voxel& v)
+    auto Hash =
+        [](uint32_t x)
     {
-        vm.FillVoxels(
-            a,
-            b,
-            v
+        x ^= x >> 16;
+        x *= 0x7feb352dU;
+
+        x ^= x >> 15;
+        x *= 0x846ca68bU;
+
+        x ^= x >> 16;
+
+        return x;
+    };
+
+
+    // ============================================================
+    // RANDOMIZED VOXEL
+    //
+    // Randomizes each individual voxel rather than each cube.
+    // ============================================================
+
+    auto RandomizeVoxel =
+        [&](Voxel voxel,
+            int x,
+            int y,
+            int z,
+            uint32_t seed)
+    {
+        uint32_t h =
+            seed ^
+            (static_cast<uint32_t>(x) * 73856093U) ^
+            (static_cast<uint32_t>(y) * 19349663U) ^
+            (static_cast<uint32_t>(z) * 83492791U);
+
+        h = Hash(h);
+
+        // Small variation so the terrain isn't perfectly flat.
+        const int variation =
+            static_cast<int>(h % 5U) - 2;
+
+        voxel.set_r(
+            glm::clamp(
+                static_cast<int>(voxel.r()) + variation,
+                0,
+                31
+            )
         );
+
+        voxel.set_g(
+            glm::clamp(
+                static_cast<int>(voxel.g()) + variation,
+                0,
+                31
+            )
+        );
+
+        voxel.set_b(
+            glm::clamp(
+                static_cast<int>(voxel.b()) + variation,
+                0,
+                31
+            )
+        );
+
+        return voxel;
+    };
+
+
+    // ============================================================
+    // SET VOXEL
+    //
+    // Everything generated below is relative to
+    // vm.chunk_occupancy.position.
+    //
+    // SetVoxel() receives world coordinates, so worldOrigin
+    // converts our local [0..WORLD] coordinates into the actual
+    // allocated chunk coordinates.
+    // ============================================================
+
+    auto Set =
+        [&](int x, int y, int z, const Voxel& voxel, uint32_t seed)
+    {
+        if (x < 0 || x >= WORLD_X ||
+            y < 0 || y >= WORLD_Y ||
+            z < 0 || z >= WORLD_Z)
+        {
+            return;
+        }
+
+        vm.SetVoxel(
+            glm::ivec3(x, y, z) + worldOrigin,
+            RandomizeVoxel(voxel, x, y, z, seed)
+        );
+    };
+
+
+    // ============================================================
+    // FAST SOLID COLUMN
+    //
+    // Instead of calling FillVoxels once per voxel, terrain is
+    // generated one column at a time with SetVoxel.
+    //
+    // The important optimization is that we only generate the
+    // relatively thin surface region individually. Large interior
+    // regions are filled with larger SetVoxel batches where
+    // possible through the 64-voxel chunk hierarchy.
+    // ============================================================
+
+    auto SetColumn =
+        [&](int x, int z, int bottom, int top)
+    {
+        bottom = std::max(bottom, 0);
+        top = std::min(top, WORLD_Y);
+
+        if (bottom >= top)
+            return;
+
+        for (int y = bottom; y < top; ++y)
+        {
+            Voxel voxel;
+
+            if (y < top - 4)
+                voxel = stone;
+            else
+                voxel = grass;
+
+            Set(x, y, z, voxel, 1001);
+        }
     };
 
 
@@ -171,191 +252,54 @@ void GenerateWorld(VoxelManager& vm)
     // NOISE
     // ============================================================
 
+    printf("Setting up noise...\n");
+
+    // Main terrain shape.
     FastNoiseLite terrainNoise;
+
     terrainNoise.SetNoiseType(
         FastNoiseLite::NoiseType_OpenSimplex2
     );
-    terrainNoise.SetSeed(48291);
-    terrainNoise.SetFrequency(0.0025f);
 
+    terrainNoise.SetSeed(48291);
+    terrainNoise.SetFrequency(0.0018f);
+
+
+    // Medium scale terrain variation.
     FastNoiseLite detailNoise;
+
     detailNoise.SetNoiseType(
         FastNoiseLite::NoiseType_OpenSimplex2
     );
+
     detailNoise.SetSeed(192837);
-    detailNoise.SetFrequency(0.012f);
+    detailNoise.SetFrequency(0.008f);
 
-    FastNoiseLite biomeNoise;
-    biomeNoise.SetNoiseType(
-        FastNoiseLite::NoiseType_OpenSimplex2
-    );
-    biomeNoise.SetSeed(837261);
-    biomeNoise.SetFrequency(0.0018f);
 
-    FastNoiseLite temperatureNoise;
-    temperatureNoise.SetNoiseType(
-        FastNoiseLite::NoiseType_OpenSimplex2
-    );
-    temperatureNoise.SetSeed(92831);
-    temperatureNoise.SetFrequency(0.0015f);
-
-    FastNoiseLite moistureNoise;
-    moistureNoise.SetNoiseType(
-        FastNoiseLite::NoiseType_OpenSimplex2
-    );
-    moistureNoise.SetSeed(19231);
-    moistureNoise.SetFrequency(0.0017f);
-
+    // Tree distribution.
     FastNoiseLite treeNoise;
+
     treeNoise.SetNoiseType(
         FastNoiseLite::NoiseType_OpenSimplex2
     );
-    treeNoise.SetSeed(912837);
-    treeNoise.SetFrequency(0.004f);
 
-    FastNoiseLite structureNoise;
-    structureNoise.SetNoiseType(
+    treeNoise.SetSeed(912837);
+    treeNoise.SetFrequency(0.006f);
+
+
+    // Rock distribution.
+    FastNoiseLite rockNoise;
+
+    rockNoise.SetNoiseType(
         FastNoiseLite::NoiseType_OpenSimplex2
     );
-    structureNoise.SetSeed(723819);
-    structureNoise.SetFrequency(0.002f);
+
+    rockNoise.SetSeed(712341);
+    rockNoise.SetFrequency(0.012f);
 
 
     // ============================================================
-    // BIOMES
-    // ============================================================
-
-    enum class Biome
-    {
-        Plains,
-        Forest,
-        Desert,
-        Swamp,
-        Mountain
-    };
-
-
-    auto GetBiome =
-        [&](int x,
-            int z,
-            int height) -> Biome
-    {
-        float fx =
-            static_cast<float>(x);
-
-        float fz =
-            static_cast<float>(z);
-
-        float moisture =
-            moistureNoise.GetNoise(
-                fx,
-                fz
-            );
-
-        float temperature =
-            temperatureNoise.GetNoise(
-                fx,
-                fz
-            );
-
-        float biome =
-            biomeNoise.GetNoise(
-                fx,
-                fz
-            );
-
-        if (height > 100)
-            return Biome::Mountain;
-
-        if (temperature > 0.45f &&
-            moisture < -0.1f)
-        {
-            return Biome::Desert;
-        }
-
-        if (moisture > 0.45f &&
-            height < SEA_LEVEL + 12)
-        {
-            return Biome::Swamp;
-        }
-
-        if (moisture > 0.05f &&
-            biome > -0.15f)
-        {
-            return Biome::Forest;
-        }
-
-        return Biome::Plains;
-    };
-
-
-    // ============================================================
-    // RAW TERRAIN HEIGHT
-    //
-    // This is only evaluated at terrain sample points.
-    // ============================================================
-
-    auto GetHeightFloat =
-        [&](float fx,
-            float fz) -> float
-    {
-        float large =
-            terrainNoise.GetNoise(
-                fx,
-                fz
-            );
-
-        float detail =
-            detailNoise.GetNoise(
-                fx,
-                fz
-            );
-
-        float ridgeNoise =
-            terrainNoise.GetNoise(
-                fx * 0.42f,
-                fz * 0.42f
-            );
-
-        float ridges =
-            1.0f -
-            std::abs(ridgeNoise);
-
-        ridges *= ridges;
-
-        float h =
-            55.0f;
-
-        h +=
-            large * 24.0f;
-
-        h +=
-            detail * 7.0f;
-
-        h +=
-            ridges * 45.0f;
-
-        h +=
-            sinf(fx * 0.003f) *
-            7.0f;
-
-        h +=
-            sinf(fz * 0.004f) *
-            6.0f;
-
-        return glm::clamp(
-            h,
-            8.0f,
-            static_cast<float>(WORLD_Y - 20)
-        );
-    };
-
-
-    // ============================================================
-    // TERRAIN SAMPLE GRID
-    //
-    // Instead of calculating noise for every voxel column,
-    // calculate it once every TERRAIN_STEP voxels.
+    // HEIGHT SAMPLES
     // ============================================================
 
     constexpr int SAMPLE_X =
@@ -364,877 +308,191 @@ void GenerateWorld(VoxelManager& vm)
     constexpr int SAMPLE_Z =
         WORLD_Z / TERRAIN_STEP + 1;
 
-    std::vector<float> terrainSamples(
+    std::vector<float> heightSamples(
         SAMPLE_X * SAMPLE_Z
     );
 
-
     auto SampleIndex =
-        [&](int sx, int sz)
+        [&](int x, int z)
     {
-        return sz * SAMPLE_X + sx;
+        return z * SAMPLE_X + x;
     };
 
+
+    printf("Generating terrain height samples...\n");
 
     for (int sz = 0; sz < SAMPLE_Z; ++sz)
     {
         for (int sx = 0; sx < SAMPLE_X; ++sx)
         {
-            float x =
+            const float x =
                 static_cast<float>(
                     std::min(
                         sx * TERRAIN_STEP,
-                        WORLD_X
+                        WORLD_X - 1
                     )
                 );
 
-            float z =
+            const float z =
                 static_cast<float>(
                     std::min(
                         sz * TERRAIN_STEP,
-                        WORLD_Z
+                        WORLD_Z - 1
                     )
                 );
 
-            terrainSamples[
+
+            // Main broad terrain.
+            const float large =
+                terrainNoise.GetNoise(x, z);
+
+
+            // Smaller terrain features.
+            const float detail =
+                detailNoise.GetNoise(x, z);
+
+
+            // ----------------------------------------------------
+            // Terrain shape
+            //
+            // Keep the original terrain noise while adding a
+            // moderate amount of sharper variation.
+            // ----------------------------------------------------
+
+            float ridge =
+                1.0f - std::abs(large);
+
+            ridge *= ridge;
+
+
+            float height = 42.0f;
+
+            height += large * 22.0f;
+
+            height += detail * 8.0f;
+
+            // Moderate mountain contribution.
+            height += ridge * 55.0f;
+
+
+            // Slightly exaggerate high/low areas without making
+            // the terrain completely insane.
+            if (large > 0.45f)
+            {
+                height +=
+                    (large - 0.45f) * 25.0f;
+            }
+
+            if (large < -0.55f)
+            {
+                height +=
+                    (large + 0.55f) * 10.0f;
+            }
+
+
+            heightSamples[
                 SampleIndex(sx, sz)
             ] =
-                GetHeightFloat(
-                    x,
-                    z
+                glm::clamp(
+                    height,
+                    8.0f,
+                    static_cast<float>(WORLD_Y - 20)
                 );
+        }
+
+        if (sz % 32 == 0 ||
+            sz == SAMPLE_Z - 1)
+        {
+            printf(
+                "  Samples: %d / %d (%.1f%%)\n",
+                sz + 1,
+                SAMPLE_Z,
+                (sz + 1) * 100.0f / SAMPLE_Z
+            );
         }
     }
 
 
     // ============================================================
-    // SMOOTH HEIGHT
-    //
-    // Bilinear interpolation between the terrain samples.
-    //
-    // This is the important part:
-    //
-    //       sample ----- sample
-    //          |           |
-    //          | interpolate
-    //          |           |
-    //       sample ----- sample
-    //
-    // So the terrain does not abruptly jump between samples.
+    // HEIGHT FUNCTION
     // ============================================================
 
     auto GetHeight =
-        [&](int x,
-            int z) -> int
+        [&](int x, int z) -> int
     {
-        x =
-            glm::clamp(
-                x,
-                0,
-                WORLD_X - 1
-            );
+        x = glm::clamp(x, 0, WORLD_X - 1);
+        z = glm::clamp(z, 0, WORLD_Z - 1);
 
-        z =
-            glm::clamp(
-                z,
-                0,
-                WORLD_Z - 1
-            );
-
-
-        int sx =
+        const int sx =
             x / TERRAIN_STEP;
 
-        int sz =
+        const int sz =
             z / TERRAIN_STEP;
 
+        const int sx1 =
+            std::min(sx + 1, SAMPLE_X - 1);
 
-        int sx1 =
-            std::min(
-                sx + 1,
-                SAMPLE_X - 1
-            );
-
-        int sz1 =
-            std::min(
-                sz + 1,
-                SAMPLE_Z - 1
-            );
+        const int sz1 =
+            std::min(sz + 1, SAMPLE_Z - 1);
 
 
         float tx =
             static_cast<float>(
                 x % TERRAIN_STEP
-            ) /
-            static_cast<float>(
-                TERRAIN_STEP
-            );
+            ) / TERRAIN_STEP;
 
         float tz =
             static_cast<float>(
                 z % TERRAIN_STEP
-            ) /
-            static_cast<float>(
-                TERRAIN_STEP
-            );
+            ) / TERRAIN_STEP;
 
 
-        float h00 =
-            terrainSamples[
-                SampleIndex(
-                    sx,
-                    sz
-                )
+        // Smooth interpolation.
+        tx = tx * tx * (3.0f - 2.0f * tx);
+        tz = tz * tz * (3.0f - 2.0f * tz);
+
+
+        const float h00 =
+            heightSamples[
+                SampleIndex(sx, sz)
             ];
 
-        float h10 =
-            terrainSamples[
-                SampleIndex(
-                    sx1,
-                    sz
-                )
+        const float h10 =
+            heightSamples[
+                SampleIndex(sx1, sz)
             ];
 
-        float h01 =
-            terrainSamples[
-                SampleIndex(
-                    sx,
-                    sz1
-                )
+        const float h01 =
+            heightSamples[
+                SampleIndex(sx, sz1)
             ];
 
-        float h11 =
-            terrainSamples[
-                SampleIndex(
-                    sx1,
-                    sz1
-                )
+        const float h11 =
+            heightSamples[
+                SampleIndex(sx1, sz1)
             ];
 
 
-        // Smoothstep interpolation instead of
-        // linear interpolation.
-        //
-        // This makes the transitions between terrain
-        // samples much less mechanical.
+        const float h0 =
+            glm::mix(h00, h10, tx);
 
-        float smoothX =
-            tx * tx *
-            (3.0f - 2.0f * tx);
-
-        float smoothZ =
-            tz * tz *
-            (3.0f - 2.0f * tz);
-
-
-        float h0 =
-            glm::mix(
-                h00,
-                h10,
-                smoothX
-            );
-
-        float h1 =
-            glm::mix(
-                h01,
-                h11,
-                smoothX
-            );
-
-        float h =
-            glm::mix(
-                h0,
-                h1,
-                smoothZ
-            );
+        const float h1 =
+            glm::mix(h01, h11, tx);
 
 
         return static_cast<int>(
-            std::floor(h)
+            glm::mix(h0, h1, tz)
         );
     };
 
 
     // ============================================================
-    // TREE
-    // ============================================================
-
-    auto Tree =
-        [&](int x,
-            int y,
-            int z,
-            int height,
-            Biome biome)
-    {
-        Voxel trunk =
-            biome == Biome::Swamp
-                ? woodDark
-                : wood;
-
-        Voxel leaf =
-            biome == Biome::Swamp
-                ? leavesDark
-                : leaves;
-
-        Cube(
-            glm::ivec3(
-                x - 1,
-                y,
-                z - 1
-            ),
-            glm::ivec3(
-                x + 2,
-                y + height,
-                z + 2
-            ),
-            trunk
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 4,
-                y + height - 3,
-                z - 4
-            ),
-            glm::ivec3(
-                x + 5,
-                y + height + 2,
-                z + 5
-            ),
-            leaf
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 3,
-                y + height + 1,
-                z - 3
-            ),
-            glm::ivec3(
-                x + 4,
-                y + height + 5,
-                z + 4
-            ),
-            leavesLight
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 1,
-                y + height + 4,
-                z - 1
-            ),
-            glm::ivec3(
-                x + 2,
-                y + height + 8,
-                z + 2
-            ),
-            leaf
-        );
-    };
-
-
-    // ============================================================
-    // HOUSE
-    // ============================================================
-
-    auto House =
-        [&](int x,
-            int y,
-            int z,
-            int width,
-            int depth)
-    {
-        constexpr int WALL_HEIGHT = 13;
-
-        Cube(
-            glm::ivec3(
-                x,
-                y,
-                z
-            ),
-            glm::ivec3(
-                x + width,
-                y + 2,
-                z + depth
-            ),
-            stone
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 2,
-                y + 2,
-                z + 2
-            ),
-            glm::ivec3(
-                x + width - 2,
-                y + WALL_HEIGHT,
-                z + depth - 2
-            ),
-            brick
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 4,
-                y + 4,
-                z + 4
-            ),
-            glm::ivec3(
-                x + width - 4,
-                y + WALL_HEIGHT - 2,
-                z + depth - 4
-            ),
-            woodDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 2,
-                y + 2,
-                z + depth - 3
-            ),
-            glm::ivec3(
-                x + width - 2,
-                y + WALL_HEIGHT,
-                z + depth
-            ),
-            brick
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 2,
-                y + WALL_HEIGHT,
-                z - 2
-            ),
-            glm::ivec3(
-                x + width + 2,
-                y + WALL_HEIGHT + 4,
-                z + depth + 2
-            ),
-            roof
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 3,
-                y + WALL_HEIGHT + 4,
-                z + depth / 2 - 2
-            ),
-            glm::ivec3(
-                x + width - 3,
-                y + WALL_HEIGHT + 6,
-                z + depth / 2 + 2
-            ),
-            roof
-        );
-
-        Cube(
-            glm::ivec3(
-                x + width / 2 - 2,
-                y + 3,
-                z + depth - 4
-            ),
-            glm::ivec3(
-                x + width / 2 + 2,
-                y + 10,
-                z + depth
-            ),
-            woodDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 4,
-                y + 7,
-                z + depth - 1
-            ),
-            glm::ivec3(
-                x + 10,
-                y + 11,
-                z + depth + 1
-            ),
-            glass
-        );
-
-        Cube(
-            glm::ivec3(
-                x + width - 10,
-                y + 7,
-                z + depth - 1
-            ),
-            glm::ivec3(
-                x + width - 4,
-                y + 11,
-                z + depth + 1
-            ),
-            glass
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 1,
-                y + 7,
-                z + depth / 2 - 3
-            ),
-            glm::ivec3(
-                x + 2,
-                y + 11,
-                z + depth / 2 + 3
-            ),
-            glass
-        );
-    };
-
-
-    // ============================================================
-    // LARGE HOUSE
-    // ============================================================
-
-    auto LargeHouse =
-        [&](int x,
-            int y,
-            int z)
-    {
-        constexpr int W = 34;
-        constexpr int D = 30;
-        constexpr int H = 18;
-
-        Cube(
-            glm::ivec3(x, y, z),
-            glm::ivec3(
-                x + W,
-                y + 3,
-                z + D
-            ),
-            stone
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 2,
-                y + 3,
-                z + 2
-            ),
-            glm::ivec3(
-                x + W - 2,
-                y + H,
-                z + D - 2
-            ),
-            brick
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 5,
-                y + 5,
-                z + 5
-            ),
-            glm::ivec3(
-                x + W - 5,
-                y + H - 2,
-                z + D - 5
-            ),
-            woodDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 3,
-                y + H,
-                z - 3
-            ),
-            glm::ivec3(
-                x + W + 3,
-                y + H + 5,
-                z + D + 3
-            ),
-            roof
-        );
-
-        Cube(
-            glm::ivec3(
-                x + W / 2 - 3,
-                y + 3,
-                z + D - 4
-            ),
-            glm::ivec3(
-                x + W / 2 + 3,
-                y + 12,
-                z + D
-            ),
-            woodDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 5,
-                y + 8,
-                z + D - 1
-            ),
-            glm::ivec3(
-                x + 12,
-                y + 13,
-                z + D + 1
-            ),
-            glass
-        );
-
-        Cube(
-            glm::ivec3(
-                x + W - 12,
-                y + 8,
-                z + D - 1
-            ),
-            glm::ivec3(
-                x + W - 5,
-                y + 13,
-                z + D + 1
-            ),
-            glass
-        );
-    };
-
-
-    // ============================================================
-    // WATCHTOWER
-    // ============================================================
-
-    auto Watchtower =
-        [&](int x,
-            int y,
-            int z)
-    {
-        constexpr int W = 14;
-        constexpr int H = 38;
-
-        Cube(
-            glm::ivec3(x, y, z),
-            glm::ivec3(
-                x + W,
-                y + H,
-                z + W
-            ),
-            stoneDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 3,
-                y + 3,
-                z + 3
-            ),
-            glm::ivec3(
-                x + W - 3,
-                y + H - 3,
-                z + W - 3
-            ),
-            stone
-        );
-
-        for (int wy = 10;
-             wy < H - 5;
-             wy += 10)
-        {
-            Cube(
-                glm::ivec3(
-                    x + W / 2 - 2,
-                    y + wy,
-                    z - 1
-                ),
-                glm::ivec3(
-                    x + W / 2 + 2,
-                    y + wy + 5,
-                    z + 2
-                ),
-                glass
-            );
-        }
-
-        for (int i = 0; i < 3; ++i)
-        {
-            Cube(
-                glm::ivec3(
-                    x + i * 5,
-                    y + H,
-                    z
-                ),
-                glm::ivec3(
-                    x + i * 5 + 3,
-                    y + H + 5,
-                    z + 4
-                ),
-                stoneDark
-            );
-
-            Cube(
-                glm::ivec3(
-                    x + i * 5,
-                    y + H,
-                    z + W - 4
-                ),
-                glm::ivec3(
-                    x + i * 5 + 3,
-                    y + H + 5,
-                    z + W
-                ),
-                stoneDark
-            );
-        }
-    };
-
-
-    // ============================================================
-    // RUIN
-    // ============================================================
-
-    auto Ruin =
-        [&](int x,
-            int y,
-            int z)
-    {
-        int h1 = 14;
-        int h2 = 22;
-        int h3 = 11;
-        int h4 = 18;
-
-        Cube(
-            glm::ivec3(
-                x,
-                y,
-                z
-            ),
-            glm::ivec3(
-                x + 7,
-                y + h1,
-                z + 7
-            ),
-            stoneDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 10,
-                y,
-                z
-            ),
-            glm::ivec3(
-                x + 16,
-                y + h2,
-                z + 6
-            ),
-            stone
-        );
-
-        Cube(
-            glm::ivec3(
-                x,
-                y,
-                z + 11
-            ),
-            glm::ivec3(
-                x + 6,
-                y + h3,
-                z + 17
-            ),
-            stone
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 11,
-                y,
-                z + 12
-            ),
-            glm::ivec3(
-                x + 17,
-                y + h4,
-                z + 18
-            ),
-            stoneDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x + 5,
-                y,
-                z + 5
-            ),
-            glm::ivec3(
-                x + 13,
-                y + 2,
-                z + 13
-            ),
-            stoneLight
-        );
-    };
-
-
-    // ============================================================
-    // SHRINE
-    // ============================================================
-
-    auto Shrine =
-        [&](int x,
-            int y,
-            int z)
-    {
-        Cube(
-            glm::ivec3(
-                x - 14,
-                y,
-                z - 14
-            ),
-            glm::ivec3(
-                x + 14,
-                y + 3,
-                z + 14
-            ),
-            stone
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 8,
-                y + 3,
-                z - 5
-            ),
-            glm::ivec3(
-                x + 8,
-                y + 6,
-                z + 5
-            ),
-            stoneLight
-        );
-
-        const glm::ivec2 pillars[] =
-        {
-            {-10, -10},
-            { 10, -10},
-            {-10,  10},
-            { 10,  10}
-        };
-
-        for (const auto& p : pillars)
-        {
-            Cube(
-                glm::ivec3(
-                    x + p.x - 2,
-                    y + 3,
-                    z + p.y - 2
-                ),
-                glm::ivec3(
-                    x + p.x + 2,
-                    y + 18,
-                    z + p.y + 2
-                ),
-                stoneDark
-            );
-        }
-
-        Cube(
-            glm::ivec3(
-                x - 5,
-                y + 6,
-                z - 5
-            ),
-            glm::ivec3(
-                x + 5,
-                y + 11,
-                z + 5
-            ),
-            stoneDark
-        );
-
-        Cube(
-            glm::ivec3(
-                x - 2,
-                y + 11,
-                z - 2
-            ),
-            glm::ivec3(
-                x + 2,
-                y + 14,
-                z + 2
-            ),
-            gold
-        );
-    };
-
-
-    // ============================================================
-    // BRIDGE
-    // ============================================================
-
-    auto Bridge =
-        [&](int x,
-            int y,
-            int z,
-            int length)
-    {
-        Cube(
-            glm::ivec3(
-                x,
-                y,
-                z
-            ),
-            glm::ivec3(
-                x + length,
-                y + 4,
-                z + 10
-            ),
-            wood
-        );
-
-        for (int px = x;
-             px <= x + length;
-             px += 8)
-        {
-            Cube(
-                glm::ivec3(
-                    px,
-                    y - 5,
-                    z
-                ),
-                glm::ivec3(
-                    px + 3,
-                    y,
-                    z + 3
-                ),
-                woodDark
-            );
-
-            Cube(
-                glm::ivec3(
-                    px,
-                    y - 5,
-                    z + 7
-                ),
-                glm::ivec3(
-                    px + 3,
-                    y,
-                    z + 10
-                ),
-                woodDark
-            );
-        }
-    };
-
-
-    // ============================================================
-    // GENERATE TERRAIN
+    // HEIGHT MAP
     //
-    // We generate 4x4 terrain patches.
-    //
-    // The height at each patch is obtained from the smooth
-    // interpolated terrain function.
-    //
-    // This is considerably cheaper than 1x1 generation while
-    // producing much smoother terrain than the original 8x8
-    // blocks.
+    // Cached because trees, rocks and terrain all need the height.
     // ============================================================
+
+    printf("Building height map...\n");
 
     std::vector<int> heightMap(
         WORLD_X * WORLD_Z
@@ -1247,210 +505,103 @@ void GenerateWorld(VoxelManager& vm)
     };
 
 
-    for (int x = 0;
-         x < WORLD_X;
-         x += TERRAIN_STEP)
+    for (int x = 0; x < WORLD_X; ++x)
     {
-        for (int z = 0;
-             z < WORLD_Z;
-             z += TERRAIN_STEP)
+        for (int z = 0; z < WORLD_Z; ++z)
         {
-            int x1 =
-                std::min(
-                    x + TERRAIN_STEP,
-                    WORLD_X
-                );
+            heightMap[
+                HeightIndex(x, z)
+            ] =
+                GetHeight(x, z);
+        }
 
-            int z1 =
-                std::min(
-                    z + TERRAIN_STEP,
-                    WORLD_Z
-                );
-
-
-            int width =
-                x1 - x;
-
-            int depth =
-                z1 - z;
-
-
-            // Sample the interpolated height at the center
-            // of the patch.
-            int centerX =
-                x + width / 2;
-
-            int centerZ =
-                z + depth / 2;
-
-            int height =
-                GetHeight(
-                    centerX,
-                    centerZ
-                );
-
-
-            Biome biome =
-                GetBiome(
-                    centerX,
-                    centerZ,
-                    height
-                );
-
-
-            Voxel surface =
-                grass;
-
-            Voxel subsurface =
-                dirt;
-
-
-            if (biome == Biome::Desert)
-            {
-                surface =
-                    sand;
-
-                subsurface =
-                    sandDark;
-            }
-            else if (biome == Biome::Mountain)
-            {
-                surface =
-                    height > 130
-                        ? snow
-                        : stone;
-
-                subsurface =
-                    stone;
-            }
-            else if (biome == Biome::Swamp)
-            {
-                surface =
-                    grassDark;
-
-                subsurface =
-                    dirtDark;
-            }
-            else if (biome == Biome::Forest)
-            {
-                surface =
-                    grass;
-
-                subsurface =
-                    dirt;
-            }
-
-
-            // ----------------------------------------------------
-            // Store interpolated heights.
-            //
-            // These are also used later by structures and water.
-            // ----------------------------------------------------
-
-            for (int px = x;
-                 px < x1;
-                 ++px)
-            {
-                for (int pz = z;
-                     pz < z1;
-                     ++pz)
-                {
-                    heightMap[
-                        HeightIndex(
-                            px,
-                            pz
-                        )
-                    ] =
-                        GetHeight(
-                            px,
-                            pz
-                        );
-                }
-            }
-
-
-            // ----------------------------------------------------
-            // Deep terrain
-            // ----------------------------------------------------
-
-            Cube(
-                glm::ivec3(
-                    x,
-                    0,
-                    z
-                ),
-                glm::ivec3(
-                    x1,
-                    std::max(
-                        1,
-                        height - 8
-                    ),
-                    z1
-                ),
-                stoneDark
+        if (x % 128 == 0 ||
+            x == WORLD_X - 1)
+        {
+            printf(
+                "  Height map: %d / %d (%.1f%%)\n",
+                x + 1,
+                WORLD_X,
+                (x + 1) * 100.0f / WORLD_X
             );
+        }
+    }
 
 
-            // ----------------------------------------------------
-            // Stone
-            // ----------------------------------------------------
+    // ============================================================
+    // TERRAIN
+    //
+    // Generate at full voxel resolution, but use the chunk
+    // hierarchy naturally through SetVoxel's chunk lookup.
+    //
+    // Terrain is intentionally simple:
+    //
+    //   bottom       = dark stone
+    //   upper stone  = normal stone
+    //   surface      = dirt/grass
+    //   high peaks   = snow
+    //
+    // This avoids the expensive collection of individual
+    // FillVoxels calls from the previous version.
+    // ============================================================
 
-            if (height > 10)
+    printf("\nGenerating terrain...\n");
+
+    for (int x = 0; x < WORLD_X; ++x)
+    {
+        for (int z = 0; z < WORLD_Z; ++z)
+        {
+            const int height =
+                heightMap[
+                    HeightIndex(x, z)
+                ];
+
+
+            // Generate the column.
+
+            for (int y = 0; y < height; ++y)
             {
-                Cube(
-                    glm::ivec3(
-                        x,
-                        10,
-                        z
-                    ),
-                    glm::ivec3(
-                        x1,
-                        height - 5,
-                        z1
-                    ),
-                    stone
-                );
-            }
+                Voxel voxel;
 
+                if (y < 6)
+                {
+                    voxel = stoneDark;
+                }
+                else if (y < height - 3)
+                {
+                    voxel = stone;
+                }
+                else if (height >= 105)
+                {
+                    voxel = snow;
+                }
+                else if (height <= SEA_LEVEL)
+                {
+                    voxel = dirt;
+                }
+                else
+                {
+                    voxel = grass;
+                }
 
-            // ----------------------------------------------------
-            // Dirt
-            // ----------------------------------------------------
-
-            if (height > 5)
-            {
-                Cube(
-                    glm::ivec3(
-                        x,
-                        height - 5,
-                        z
-                    ),
-                    glm::ivec3(
-                        x1,
-                        height - 1,
-                        z1
-                    ),
-                    subsurface
-                );
-            }
-
-
-            // ----------------------------------------------------
-            // Surface
-            // ----------------------------------------------------
-
-            Cube(
-                glm::ivec3(
+                Set(
                     x,
-                    height - 1,
-                    z
-                ),
-                glm::ivec3(
-                    x1,
-                    height + 1,
-                    z1
-                ),
-                surface
+                    y,
+                    z,
+                    voxel,
+                    1000
+                );
+            }
+        }
+
+        if (x % 64 == 0 ||
+            x == WORLD_X - 1)
+        {
+            printf(
+                "  Terrain: %d / %d (%.1f%%)\n",
+                x + 1,
+                WORLD_X,
+                (x + 1) * 100.0f / WORLD_X
             );
         }
     }
@@ -1460,1218 +611,967 @@ void GenerateWorld(VoxelManager& vm)
     // WATER
     // ============================================================
 
-    for (int x = 0;
-         x < WORLD_X;
-         x += TERRAIN_STEP)
+    printf("\nGenerating water...\n");
+
+    for (int x = 0; x < WORLD_X; ++x)
     {
-        for (int z = 0;
-             z < WORLD_Z;
-             z += TERRAIN_STEP)
+        for (int z = 0; z < WORLD_Z; ++z)
         {
-            int x1 =
-                std::min(
-                    x + TERRAIN_STEP,
-                    WORLD_X
-                );
-
-            int z1 =
-                std::min(
-                    z + TERRAIN_STEP,
-                    WORLD_Z
-                );
-
-
-            int centerX =
-                x + (x1 - x) / 2;
-
-            int centerZ =
-                z + (z1 - z) / 2;
-
-
-            int terrainY =
+            const int height =
                 heightMap[
-                    HeightIndex(
-                        centerX,
-                        centerZ
-                    )
+                    HeightIndex(x, z)
                 ];
 
 
-            if (terrainY >= SEA_LEVEL)
+            if (height >= SEA_LEVEL)
                 continue;
 
 
-            Biome biome =
-                GetBiome(
-                    centerX,
-                    centerZ,
-                    terrainY
-                );
-
-
-            if (biome == Biome::Desert)
-                continue;
-
-
-            Cube(
-                glm::ivec3(
+            for (int y = height;
+                 y < SEA_LEVEL;
+                 ++y)
+            {
+                Set(
                     x,
-                    terrainY + 1,
-                    z
-                ),
-                glm::ivec3(
-                    x1,
-                    SEA_LEVEL,
-                    z1
-                ),
-                water
+                    y,
+                    z,
+                    water,
+                    1006
+                );
+            }
+        }
+
+        if (x % 128 == 0 ||
+            x == WORLD_X - 1)
+        {
+            printf(
+                "  Water: %d / %d (%.1f%%)\n",
+                x + 1,
+                WORLD_X,
+                (x + 1) * 100.0f / WORLD_X
             );
         }
     }
 
 
     // ============================================================
-    // STRUCTURE SITE SEARCH
-    // ============================================================
+// REALISTIC TREES + ROCKS
+// ============================================================
 
-    auto FindStructureSite =
-        [&](int startX,
-            int startZ,
-            int radius,
-            int step,
-            int footprintX,
-            int footprintZ,
-            int maxSlope,
-            int minY,
-            int maxY,
-            bool allowDesert,
-            bool allowMountain,
-            glm::ivec2& result) -> bool
+printf("\nGenerating vegetation and rocks...\n");
+
+
+// ------------------------------------------------------------
+// Deterministic random
+// ------------------------------------------------------------
+
+
+auto Random01 = [&](int x, int y, int z, uint32_t seed)
+{
+    uint32_t h =
+        Hash(
+            seed ^
+            static_cast<uint32_t>(x * 73856093) ^
+            static_cast<uint32_t>(y * 19349663) ^
+            static_cast<uint32_t>(z * 83492791)
+        );
+
+    return static_cast<float>(h) /
+           static_cast<float>(UINT32_MAX);
+};
+
+
+// ------------------------------------------------------------
+// Materials
+// ------------------------------------------------------------
+
+
+const Voxel leavesDark =
+    MakeVoxel(3, 15, 4);
+
+const Voxel rock =
+    MakeVoxel(13, 13, 14);
+
+const Voxel rockDark =
+    MakeVoxel(8, 8, 9);
+
+
+// ------------------------------------------------------------
+// Per voxel material variation
+// ------------------------------------------------------------
+
+
+
+// ============================================================
+// TREE GENERATOR
+// ============================================================
+//
+// Trees are approximately:
+//
+//   45-80 voxels tall
+//   3-5 voxel trunk
+//   irregular branches
+//   irregular crown
+//   tapered trunk
+//
+// This is deliberately voxel-based rather than using large
+// FillVoxels calls so the shape is actually irregular.
+// ============================================================
+
+auto GenerateTree =
+    [&](int x,
+        int groundY,
+        int z,
+        uint32_t seed)
+{
+    const float random =
+        Random01(
+            x,
+            groundY,
+            z,
+            seed
+        );
+
+    // 45-80 voxel trees
+    const int height =
+        45 +
+        static_cast<int>(
+            random * 36.0f
+        );
+
+    // Larger trees get slightly thicker trunks.
+    const int trunkRadius =
+        1 +
+        static_cast<int>(
+            height / 35
+        );
+
+    const int top =
+        groundY + height;
+
+
+    // --------------------------------------------------------
+    // Trunk
+    // --------------------------------------------------------
+
+    for (int y = groundY + 1;
+         y < top;
+         ++y)
     {
-        int bestScore =
-            -1000000000;
+        // Slightly taper toward the top.
+        int radius = trunkRadius;
 
-        int bestX = 0;
-        int bestZ = 0;
+        if (y > groundY + height * 0.65f)
+            radius = std::max(1, radius - 1);
+
+        // Slowly bend the trunk.
+        const float t =
+            static_cast<float>(
+                y - groundY
+            ) /
+            static_cast<float>(
+                height
+            );
+
+        const int bendX =
+            static_cast<int>(
+                std::sin(
+                    t * 3.0f +
+                    random * 6.28f
+                ) *
+                t *
+                2.0f
+            );
+
+        const int bendZ =
+            static_cast<int>(
+                std::cos(
+                    t * 2.5f +
+                    random * 4.0f
+                ) *
+                t *
+                2.0f
+            );
 
 
-        for (int z = startZ - radius;
-             z <= startZ + radius;
-             z += step)
+        for (int dx = -radius;
+             dx <= radius;
+             ++dx)
         {
-            for (int x = startX - radius;
-                 x <= startX + radius;
-                 x += step)
+            for (int dz = -radius;
+                 dz <= radius;
+                 ++dz)
             {
-                if (x < footprintX + 8 ||
-                    z < footprintZ + 8 ||
-                    x >= WORLD_X - footprintX - 8 ||
-                    z >= WORLD_Z - footprintZ - 8)
+                if (dx * dx + dz * dz >
+                    radius * radius)
                 {
                     continue;
                 }
 
+                Voxel v =
+                    Random01(
+                        x + bendX + dx,
+                        y,
+                        z + bendZ + dz,
+                        seed + 100
+                    ) < 0.25f
+                    ? wood
+                    : wood;
 
-                int centerY =
-                    GetHeight(
-                        x,
-                        z
+                v =
+                    RandomizeVoxel(
+                        v,
+                        x + bendX + dx,
+                        y,
+                        z + bendZ + dz,
+                        seed + 200
                     );
 
+                vm.SetVoxel(
+                    glm::ivec3(
+                        x + bendX + dx,
+                        y,
+                        z + bendZ + dz
+                    ) + worldOrigin,
+                    v
+                );
+            }
+        }
+    }
 
-                if (centerY < minY ||
-                    centerY > maxY)
+
+    // --------------------------------------------------------
+    // Branches
+    // --------------------------------------------------------
+
+    const int branchStart =
+        groundY +
+        height * 45 / 100;
+
+    const int branchEnd =
+        groundY +
+        height * 82 / 100;
+
+    const int branchCount =
+        5 +
+        static_cast<int>(
+            random * 5.0f
+        );
+
+
+    for (int branch = 0;
+         branch < branchCount;
+         ++branch)
+    {
+        const float branchT =
+            static_cast<float>(branch) /
+            static_cast<float>(
+                branchCount
+            );
+
+        const int branchY =
+            branchStart +
+            static_cast<int>(
+                branchT *
+                (branchEnd - branchStart)
+            );
+
+        const float angle =
+            Random01(
+                x,
+                branchY,
+                z,
+                seed + branch * 73
+            ) *
+            6.2831853f;
+
+
+        const int branchLength =
+            7 +
+            static_cast<int>(
+                (1.0f - branchT) *
+                10.0f
+            );
+
+
+        const int startX =
+            x +
+            static_cast<int>(
+                std::sin(
+                    branchT * 3.0f +
+                    random * 6.28f
+                ) *
+                branchT *
+                2.0f
+            );
+
+        const int startZ =
+            z +
+            static_cast<int>(
+                std::cos(
+                    branchT * 2.5f +
+                    random * 4.0f
+                ) *
+                branchT *
+                2.0f
+            );
+
+
+        for (int i = 0;
+             i < branchLength;
+             ++i)
+        {
+            const float t =
+                static_cast<float>(i) /
+                static_cast<float>(
+                    branchLength
+                );
+
+            const int bx =
+                startX +
+                static_cast<int>(
+                    std::cos(angle) *
+                    i
+                );
+
+            const int bz =
+                startZ +
+                static_cast<int>(
+                    std::sin(angle) *
+                    i
+                );
+
+            const int by =
+                branchY +
+                static_cast<int>(
+                    t * 5.0f
+                );
+
+
+            // Branch becomes thinner toward its end.
+            const int radius =
+                i < branchLength * 0.45f
+                ? 1
+                : 0;
+
+
+            for (int dx = -radius;
+                 dx <= radius;
+                 ++dx)
+            {
+                for (int dz = -radius;
+                     dz <= radius;
+                     ++dz)
                 {
-                    continue;
-                }
-
-
-                Biome biome =
-                    GetBiome(
-                        x,
-                        z,
-                        centerY
-                    );
-
-
-                if (!allowDesert &&
-                    biome == Biome::Desert)
-                {
-                    continue;
-                }
-
-
-                if (!allowMountain &&
-                    biome == Biome::Mountain)
-                {
-                    continue;
-                }
-
-
-                if (biome == Biome::Swamp)
-                    continue;
-
-
-                int minHeight =
-                    100000;
-
-                int maxHeight =
-                    -100000;
-
-
-                const int samples = 5;
-
-
-                for (int sy = 0;
-                     sy < samples;
-                     ++sy)
-                {
-                    for (int sx = 0;
-                         sx < samples;
-                         ++sx)
+                    if (dx * dx + dz * dz >
+                        radius * radius)
                     {
-                        int px =
-                            x -
-                            footprintX / 2 +
-                            (footprintX * sx) /
-                            (samples - 1);
-
-                        int pz =
-                            z -
-                            footprintZ / 2 +
-                            (footprintZ * sy) /
-                            (samples - 1);
-
-
-                        int py =
-                            GetHeight(
-                                px,
-                                pz
-                            );
-
-
-                        minHeight =
-                            std::min(
-                                minHeight,
-                                py
-                            );
-
-                        maxHeight =
-                            std::max(
-                                maxHeight,
-                                py
-                            );
+                        continue;
                     }
-                }
 
+                    Voxel v =
+                        RandomizeVoxel(
+                            wood,
+                            bx + dx,
+                            by,
+                            bz + dz,
+                            seed + 300
+                        );
 
-                int slope =
-                    maxHeight -
-                    minHeight;
-
-
-                if (slope > maxSlope)
-                    continue;
-
-
-                int distance =
-                    std::abs(
-                        x - startX
-                    ) +
-                    std::abs(
-                        z - startZ
+                    vm.SetVoxel(
+                        glm::ivec3(
+                            bx + dx,
+                            by,
+                            bz + dz
+                        ) + worldOrigin,
+                        v
                     );
-
-
-                int score =
-                    10000 -
-                    slope * 100 -
-                    distance;
-
-
-                if (score > bestScore)
-                {
-                    bestScore =
-                        score;
-
-                    bestX =
-                        x;
-
-                    bestZ =
-                        z;
                 }
             }
         }
+    }
 
 
-        if (bestScore ==
-            -1000000000)
-        {
-            return false;
-        }
+    // --------------------------------------------------------
+    // Crown
+    // --------------------------------------------------------
 
+    const int crownCenterY =
+        groundY +
+        height * 82 / 100;
 
-        result =
-            glm::ivec2(
-                bestX,
-                bestZ
-            );
-
-
-        return true;
-    };
-
-
-    // ============================================================
-    // TREE GENERATION
-    // ============================================================
-
-    std::mt19937 rng(
-        839271
-    );
-
-    std::uniform_int_distribution<int>
-        xDistribution(
-            12,
-            WORLD_X - 13
-        );
-
-    std::uniform_int_distribution<int>
-        zDistribution(
-            12,
-            WORLD_Z - 13
-        );
-
-    std::uniform_real_distribution<float>
-        random01(
-            0.0f,
-            1.0f
+    const int crownRadius =
+        9 +
+        static_cast<int>(
+            random * 6.0f
         );
 
 
-    std::vector<glm::ivec2>
-        placedTrees;
-
-
-    constexpr int TREE_CANDIDATES =
-        (WORLD_X * WORLD_Z) / 850;
-
-
-    for (int i = 0;
-         i < TREE_CANDIDATES;
-         ++i)
+    for (int dy = -crownRadius;
+         dy <= crownRadius;
+         ++dy)
     {
-        int x =
-            xDistribution(rng);
+        const float vertical =
+            static_cast<float>(dy) /
+            static_cast<float>(
+                crownRadius
+            );
 
-        int z =
-            zDistribution(rng);
+        // Wider around the middle.
+        const float layer =
+            1.0f -
+            vertical * vertical;
 
-        int y =
-            GetHeight(
-                x,
-                z
+        const int radius =
+            static_cast<int>(
+                crownRadius *
+                layer
             );
 
 
-        if (y <= SEA_LEVEL + 5)
-            continue;
-
-
-        Biome biome =
-            GetBiome(
-                x,
-                z,
-                y
-            );
-
-
-        float density;
-
-
-        switch (biome)
+        for (int dx = -radius;
+             dx <= radius;
+             ++dx)
         {
-            case Biome::Forest:
-                density = 0.72f;
-                break;
+            for (int dz = -radius;
+                 dz <= radius;
+                 ++dz)
+            {
+                const float distance =
+                    std::sqrt(
+                        static_cast<float>(
+                            dx * dx +
+                            dz * dz
+                        )
+                    );
 
-            case Biome::Plains:
-                density = 0.10f;
-                break;
+                // Irregular edge.
+                const float noise =
+                    Random01(
+                        x + dx,
+                        crownCenterY + dy,
+                        z + dz,
+                        seed + 500
+                    );
 
-            case Biome::Swamp:
-                density = 0.35f;
-                break;
+                const float allowed =
+                    radius *
+                    (0.78f +
+                     noise * 0.35f);
 
-            case Biome::Desert:
-                density = 0.008f;
-                break;
+                if (distance > allowed)
+                    continue;
 
-            case Biome::Mountain:
-                density = 0.015f;
-                break;
+
+                // Don't make every interior voxel solid.
+                if (noise < 0.10f &&
+                    distance > radius * 0.45f)
+                {
+                    continue;
+                }
+
+
+                Voxel v =
+                    noise < 0.30f
+                    ? leavesDark
+                    : leaves;
+
+
+                v =
+                    RandomizeVoxel(
+                        v,
+                        x + dx,
+                        crownCenterY + dy,
+                        z + dz,
+                        seed + 600
+                    );
+
+
+                vm.SetVoxel(
+                    glm::ivec3(
+                        x + dx,
+                        crownCenterY + dy,
+                        z + dz
+                    ) + worldOrigin,
+                    v
+                );
+            }
         }
+    }
 
 
-        float patch =
+    // --------------------------------------------------------
+    // Smaller lower foliage clusters
+    // --------------------------------------------------------
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const float angle =
+            Random01(
+                x,
+                i,
+                z,
+                seed + 700
+            ) *
+            6.2831853f;
+
+        const int distance =
+            4 +
+            static_cast<int>(
+                Random01(
+                    x,
+                    i,
+                    z,
+                    seed + 701
+                ) * 5.0f
+            );
+
+        const int cx =
+            x +
+            static_cast<int>(
+                std::cos(angle) *
+                distance
+            );
+
+        const int cz =
+            z +
+            static_cast<int>(
+                std::sin(angle) *
+                distance
+            );
+
+        const int cy =
+            groundY +
+            height * 65 / 100 +
+            i * 2;
+
+
+        for (int dx = -3;
+             dx <= 3;
+             ++dx)
+        {
+            for (int dz = -3;
+                 dz <= 3;
+                 ++dz)
+            {
+                const float d =
+                    std::sqrt(
+                        static_cast<float>(
+                            dx * dx +
+                            dz * dz
+                        )
+                    );
+
+                if (d > 3.5f)
+                    continue;
+
+                const float n =
+                    Random01(
+                        cx + dx,
+                        cy,
+                        cz + dz,
+                        seed + 800
+                    );
+
+                if (n < 0.15f)
+                    continue;
+
+                Voxel v =
+                    n < 0.45f
+                    ? leavesDark
+                    : leaves;
+
+                v =
+                    RandomizeVoxel(
+                        v,
+                        cx + dx,
+                        cy,
+                        cz + dz,
+                        seed + 801
+                    );
+
+                vm.SetVoxel(
+                    glm::ivec3(
+                        cx + dx,
+                        cy,
+                        cz + dz
+                    ) + worldOrigin,
+                    v
+                );
+            }
+        }
+    }
+};
+
+
+// ============================================================
+// ROCK GENERATOR
+// ============================================================
+//
+// Rocks are irregular 3D blobs rather than cubes.
+// Typical size: 4-14 voxels.
+// ============================================================
+
+auto GenerateRock =
+    [&](int x,
+        int groundY,
+        int z,
+        uint32_t seed)
+{
+    const float r =
+        Random01(
+            x,
+            groundY,
+            z,
+            seed
+        );
+
+
+    // 4-14 voxel radius
+    const int radius =
+        2 +
+        static_cast<int>(
+            r * 6.0f
+        );
+
+
+    const int height =
+        std::max(
+            2,
+            static_cast<int>(
+                radius *
+                (0.55f + r * 0.35f)
+            )
+        );
+
+
+    for (int dy = 0;
+         dy <= height;
+         ++dy)
+    {
+        const float t =
+            static_cast<float>(dy) /
+            static_cast<float>(
+                height
+            );
+
+        // Rocks become narrower toward the top.
+        const float verticalScale =
+            1.0f - t * 0.65f;
+
+        const int layerRadius =
+            std::max(
+                1,
+                static_cast<int>(
+                    radius *
+                    verticalScale
+                )
+            );
+
+
+        for (int dx = -layerRadius;
+             dx <= layerRadius;
+             ++dx)
+        {
+            for (int dz = -layerRadius;
+                 dz <= layerRadius;
+                 ++dz)
+            {
+                const float distance =
+                    std::sqrt(
+                        static_cast<float>(
+                            dx * dx +
+                            dz * dz
+                        )
+                    );
+
+
+                // Irregular surface.
+                const float noise =
+                    Random01(
+                        x + dx,
+                        groundY + dy,
+                        z + dz,
+                        seed + 100
+                    );
+
+
+                const float edge =
+                    layerRadius *
+                    (0.70f +
+                     noise * 0.45f);
+
+
+                if (distance > edge)
+                    continue;
+
+
+                // Remove some voxels from the edges.
+                if (distance >
+                    layerRadius * 0.65f &&
+                    noise < 0.20f)
+                {
+                    continue;
+                }
+
+
+                Voxel v =
+                    noise < 0.30f
+                    ? rockDark
+                    : rock;
+
+
+                v =
+                    RandomizeVoxel(
+                        v,
+                        x + dx,
+                        groundY + dy,
+                        z + dz,
+                        seed + 200
+                    );
+
+
+                vm.SetVoxel(
+                    glm::ivec3(
+                        x + dx,
+                        groundY + dy,
+                        z + dz
+                    ) + worldOrigin,
+                    v
+                );
+            }
+        }
+    }
+};
+
+
+// ============================================================
+// PLACE TREES
+// ============================================================
+
+printf("Generating trees...\n");
+
+int treeCount = 0;
+
+constexpr int TREE_SPACING = 48;
+
+for (int x = 24;
+     x < WORLD_X - 24;
+     x += TREE_SPACING)
+{
+    for (int z = 24;
+         z < WORLD_Z - 24;
+         z += TREE_SPACING)
+    {
+        const float n =
             treeNoise.GetNoise(
                 static_cast<float>(x),
                 static_cast<float>(z)
             );
 
 
-        patch =
-            patch * 0.5f +
-            0.5f;
+        // Sparse forest.
+        if (n < 0.20f)
+            continue;
 
 
-        density *=
-            0.3f +
-            patch * 1.2f;
+        const int y =
+            heightMap[
+                HeightIndex(
+                    x,
+                    z
+                )
+            ];
 
 
-        if (random01(rng) >
-            glm::clamp(
-                density,
-                0.0f,
-                0.95f
-            ))
+        // Don't grow trees underwater
+        // or on extreme mountains.
+        if (y <= SEA_LEVEL + 2 ||
+            y > 105)
         {
             continue;
         }
 
 
-        int h0 =
-            GetHeight(
-                x,
-                z
-            );
-
-        int h1 =
-            GetHeight(
-                x + 6,
-                z
-            );
-
-        int h2 =
-            GetHeight(
-                x - 6,
-                z
-            );
-
-        int h3 =
-            GetHeight(
-                x,
-                z + 6
-            );
-
-        int h4 =
-            GetHeight(
-                x,
-                z - 6
-            );
-
-
-        int slope =
-            std::max(
-                {
-                    std::abs(h0 - h1),
-                    std::abs(h0 - h2),
-                    std::abs(h0 - h3),
-                    std::abs(h0 - h4)
-                }
-            );
-
-
-        if (slope > 8)
-            continue;
-
-
-        bool tooClose =
-            false;
-
-
-        int minimumDistance =
-            biome == Biome::Forest
-                ? 12
-                : 18;
-
-
-        for (const auto& p :
-             placedTrees)
-        {
-            int dx =
-                x - p.x;
-
-            int dz =
-                z - p.y;
-
-
-            if (dx * dx +
-                dz * dz <
-                minimumDistance *
-                minimumDistance)
-            {
-                tooClose = true;
-                break;
-            }
-        }
-
-
-        if (tooClose)
-            continue;
-
-
-        int treeHeight =
-            7 +
+        // Avoid every tree looking like it
+        // came from a perfect grid.
+        const int ox =
             static_cast<int>(
-                random01(rng) * 7.0f
-            );
-
-
-        if (biome ==
-            Biome::Swamp)
-        {
-            treeHeight += 3;
-        }
-
-
-        Tree(
-            x,
-            y + 1,
-            z,
-            treeHeight,
-            biome
-        );
-
-
-        placedTrees.emplace_back(
-            x,
-            z
-        );
-    }
-
-
-    // ============================================================
-    // VILLAGES
-    // ============================================================
-
-    for (int gx = 180;
-         gx < WORLD_X - 180;
-         gx += 600)
-    {
-        for (int gz = 180;
-             gz < WORLD_Z - 180;
-             gz += 600)
-        {
-            float n =
-                structureNoise.GetNoise(
-                    static_cast<float>(gx),
-                    static_cast<float>(gz)
-                );
-
-
-            if (n < -0.25f)
-                continue;
-
-
-            glm::ivec2 village;
-
-
-            if (!FindStructureSite(
-                    gx,
-                    gz,
-                    220,
-                    12,
-                    100,
-                    100,
-                    8,
-                    SEA_LEVEL + 6,
-                    105,
-                    false,
-                    false,
-                    village))
-            {
-                continue;
-            }
-
-
-            int vx =
-                village.x;
-
-            int vz =
-                village.y;
-
-            int vy =
-                GetHeight(
-                    vx,
-                    vz
-                );
-
-
-            // Plaza
-            Cube(
-                glm::ivec3(
-                    vx - 14,
-                    vy + 1,
-                    vz - 14
-                ),
-                glm::ivec3(
-                    vx + 14,
-                    vy + 4,
-                    vz + 14
-                ),
-                stone
-            );
-
-
-            // Main roads
-            Cube(
-                glm::ivec3(
-                    vx - 70,
-                    vy + 2,
-                    vz - 3
-                ),
-                glm::ivec3(
-                    vx + 70,
-                    vy + 4,
-                    vz + 3
-                ),
-                road
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    vx - 3,
-                    vy + 2,
-                    vz - 70
-                ),
-                glm::ivec3(
-                    vx + 3,
-                    vy + 4,
-                    vz + 70
-                ),
-                road
-            );
-
-
-            // Houses
-            const glm::ivec2
-                houseOffsets[] =
-            {
-                {-50, -42},
-                { 25, -42},
-                {-50,  28},
-                { 25,  28}
-            };
-
-
-            for (const auto& offset :
-                 houseOffsets)
-            {
-                glm::ivec2 site;
-
-
-                if (!FindStructureSite(
-                        vx + offset.x,
-                        vz + offset.y,
-                        45,
-                        5,
-                        27,
-                        25,
-                        5,
-                        SEA_LEVEL + 5,
-                        105,
-                        false,
-                        false,
-                        site))
-                {
-                    continue;
-                }
-
-
-                int hy =
-                    GetHeight(
-                        site.x,
-                        site.y
-                    );
-
-
-                House(
-                    site.x - 13,
-                    hy + 1,
-                    site.y - 12,
-                    26,
-                    24
-                );
-            }
-
-
-            // Large house
-            glm::ivec2 hall;
-
-
-            if (FindStructureSite(
-                    vx,
-                    vz + 80,
-                    50,
-                    5,
-                    36,
-                    32,
-                    5,
-                    SEA_LEVEL + 5,
-                    105,
-                    false,
-                    false,
-                    hall))
-            {
-                int hy =
-                    GetHeight(
-                        hall.x,
-                        hall.y
-                    );
-
-
-                LargeHouse(
-                    hall.x - 18,
-                    hy + 1,
-                    hall.y - 16
-                );
-            }
-
-
-            // Watchtower
-            glm::ivec2 towerSite;
-
-
-            if (FindStructureSite(
-                    vx + 75,
-                    vz + 75,
-                    50,
-                    6,
-                    18,
-                    18,
-                    7,
-                    SEA_LEVEL + 5,
-                    115,
-                    false,
-                    false,
-                    towerSite))
-            {
-                int ty =
-                    GetHeight(
-                        towerSite.x,
-                        towerSite.y
-                    );
-
-
-                Watchtower(
-                    towerSite.x - 7,
-                    ty + 1,
-                    towerSite.y - 7
-                );
-            }
-
-
-            // Fountain
-            Cube(
-                glm::ivec3(
-                    vx - 7,
-                    vy + 4,
-                    vz - 7
-                ),
-                glm::ivec3(
-                    vx + 7,
-                    vy + 6,
-                    vz + 7
-                ),
-                stoneDark
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    vx - 3,
-                    vy + 6,
-                    vz - 3
-                ),
-                glm::ivec3(
-                    vx + 3,
-                    vy + 8,
-                    vz + 3
-                ),
-                water
-            );
-        }
-    }
-
-
-    // ============================================================
-    // RUINS
-    // ============================================================
-
-    for (int gx = 140;
-         gx < WORLD_X - 140;
-         gx += 360)
-    {
-        for (int gz = 140;
-             gz < WORLD_Z - 140;
-             gz += 360)
-        {
-            float n =
-                structureNoise.GetNoise(
-                    static_cast<float>(gx + 1000),
-                    static_cast<float>(gz + 1000)
-                );
-
-
-            if (n < -0.05f)
-                continue;
-
-
-            glm::ivec2 site;
-
-
-            if (!FindStructureSite(
-                    gx,
-                    gz,
-                    150,
-                    10,
-                    24,
-                    24,
-                    10,
-                    SEA_LEVEL + 5,
-                    125,
-                    true,
-                    false,
-                    site))
-            {
-                continue;
-            }
-
-
-            int y =
-                GetHeight(
-                    site.x,
-                    site.y
-                );
-
-
-            Ruin(
-                site.x - 9,
-                y + 1,
-                site.y - 9
-            );
-        }
-    }
-
-
-    // ============================================================
-    // MOUNTAIN SHRINES
-    // ============================================================
-
-    for (int gx = 220;
-         gx < WORLD_X - 220;
-         gx += 500)
-    {
-        for (int gz = 220;
-             gz < WORLD_Z - 220;
-             gz += 500)
-        {
-            glm::ivec2 site;
-
-
-            if (!FindStructureSite(
-                    gx,
-                    gz,
-                    200,
-                    10,
-                    30,
-                    30,
-                    12,
-                    105,
-                    WORLD_Y - 30,
-                    false,
-                    true,
-                    site))
-            {
-                continue;
-            }
-
-
-            int y =
-                GetHeight(
-                    site.x,
-                    site.y
-                );
-
-
-            if (GetBiome(
-                    site.x,
-                    site.y,
-                    y
-                ) != Biome::Mountain)
-            {
-                continue;
-            }
-
-
-            Shrine(
-                site.x,
-                y + 1,
-                site.y
-            );
-        }
-    }
-
-
-    // ============================================================
-    // DESERT RUINS
-    // ============================================================
-
-    for (int gx = 160;
-         gx < WORLD_X - 160;
-         gx += 420)
-    {
-        for (int gz = 160;
-             gz < WORLD_Z - 160;
-             gz += 420)
-        {
-            glm::ivec2 site;
-
-
-            if (!FindStructureSite(
-                    gx,
-                    gz,
-                    170,
-                    10,
-                    26,
-                    26,
-                    8,
-                    SEA_LEVEL + 5,
-                    100,
-                    true,
-                    false,
-                    site))
-            {
-                continue;
-            }
-
-
-            int y =
-                GetHeight(
-                    site.x,
-                    site.y
-                );
-
-
-            if (GetBiome(
-                    site.x,
-                    site.y,
-                    y
-                ) != Biome::Desert)
-            {
-                continue;
-            }
-
-
-            Cube(
-                glm::ivec3(
-                    site.x - 10,
-                    y + 1,
-                    site.y - 10
-                ),
-                glm::ivec3(
-                    site.x - 3,
-                    y + 15,
-                    site.y - 3
-                ),
-                sandDark
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    site.x + 3,
-                    y + 1,
-                    site.y - 10
-                ),
-                glm::ivec3(
-                    site.x + 10,
-                    y + 11,
-                    site.y - 3
-                ),
-                sand
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    site.x - 10,
-                    y + 1,
-                    site.y + 3
-                ),
-                glm::ivec3(
-                    site.x - 3,
-                    y + 18,
-                    site.y + 10
-                ),
-                sand
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    site.x + 3,
-                    y + 1,
-                    site.y + 3
-                ),
-                glm::ivec3(
-                    site.x + 10,
-                    y + 13,
-                    site.y + 10
-                ),
-                sandDark
-            );
-
-
-            Cube(
-                glm::ivec3(
-                    site.x - 5,
-                    y + 1,
-                    site.y - 5
-                ),
-                glm::ivec3(
-                    site.x + 5,
-                    y + 3,
-                    site.y + 5
-                ),
-                sand
-            );
-        }
-    }
-
-
-    // ============================================================
-    // BRIDGES
-    // ============================================================
-
-    for (int gx = 200;
-         gx < WORLD_X - 200;
-         gx += 500)
-    {
-        for (int gz = 300;
-             gz < WORLD_Z - 300;
-             gz += 700)
-        {
-            int y =
-                GetHeight(
-                    gx,
-                    gz
-                );
-
-
-            if (y > SEA_LEVEL + 12)
-                continue;
-
-
-            Bridge(
-                gx,
-                SEA_LEVEL + 2,
-                gz,
-                80
-            );
-        }
-    }
-
-
-    // ============================================================
-    // GRASS / VEGETATION PATCHES
-    // ============================================================
-
-    for (int x = 10;
-         x < WORLD_X - 10;
-         x += 18)
-    {
-        for (int z = 10;
-             z < WORLD_Z - 10;
-             z += 21)
-        {
-            int y =
-                GetHeight(
+                Random01(
                     x,
-                    z
-                );
-
-
-            if (y <= SEA_LEVEL + 3)
-                continue;
-
-
-            Biome biome =
-                GetBiome(
-                    x,
+                    y,
                     z,
-                    y
-                );
+                    4001
+                ) * 18.0f
+            ) - 9;
 
-
-            if (biome == Biome::Desert ||
-                biome == Biome::Mountain)
-            {
-                continue;
-            }
-
-
-            float n =
-                detailNoise.GetNoise(
-                    static_cast<float>(x),
-                    static_cast<float>(z)
-                );
-
-
-            if (n < 0.15f)
-                continue;
-
-
-            Cube(
-                glm::ivec3(
+        const int oz =
+            static_cast<int>(
+                Random01(
                     x,
-                    y + 1,
-                    z
-                ),
-                glm::ivec3(
-                    x + 4,
-                    y + 3,
-                    z + 4
-                ),
-                grassDark
-            );
-        }
+                    y,
+                    z,
+                    4002
+                ) * 18.0f
+            ) - 9;
+
+
+        GenerateTree(
+            x + ox,
+            y,
+            z + oz,
+            5000 + treeCount
+        );
+
+        ++treeCount;
     }
 
 
-    // ============================================================
-    // TORCHES AROUND VILLAGES
-    // ============================================================
-
-    for (int gx = 180;
-         gx < WORLD_X - 180;
-         gx += 600)
+    if (x % 192 == 24)
     {
-        for (int gz = 180;
-             gz < WORLD_Z - 180;
-             gz += 600)
-        {
-            float n =
-                structureNoise.GetNoise(
-                    static_cast<float>(gx),
-                    static_cast<float>(gz)
-                );
-
-
-            if (n < -0.25f)
-                continue;
-
-
-            glm::ivec2 site;
-
-
-            if (!FindStructureSite(
-                    gx,
-                    gz,
-                    220,
-                    12,
-                    100,
-                    100,
-                    8,
-                    SEA_LEVEL + 6,
-                    105,
-                    false,
-                    false,
-                    site))
-            {
-                continue;
-            }
-
-
-            for (int dx = -60;
-                 dx <= 60;
-                 dx += 20)
-            {
-                int tx =
-                    site.x + dx;
-
-                int tz =
-                    site.y + 18;
-
-                int ty =
-                    GetHeight(
-                        tx,
-                        tz
-                    );
-
-
-                Cube(
-                    glm::ivec3(
-                        tx,
-                        ty + 1,
-                        tz
-                    ),
-                    glm::ivec3(
-                        tx + 2,
-                        ty + 7,
-                        tz + 2
-                    ),
-                    woodDark
-                );
-
-
-                Cube(
-                    glm::ivec3(
-                        tx - 1,
-                        ty + 7,
-                        tz - 1
-                    ),
-                    glm::ivec3(
-                        tx + 3,
-                        ty + 10,
-                        tz + 3
-                    ),
-                    torch
-                );
-            }
-        }
+        printf(
+            "  Trees: %d\n",
+            treeCount
+        );
     }
-
-
-    // ============================================================
-    // TEST STRUCTURE
-    // ============================================================
-
-    Voxel v;
-
-    v.set_solid(true);
-    v.set_r(31);
-    v.set_g(31);
-    v.set_b(31);
-
-    vm.FillVoxels(
-        glm::ivec3(
-            512,
-            0,
-            256
-        ),
-        glm::ivec3(
-            542,
-            1000,
-            270
-        ),
-        v
-    );
 }
 
+
+// ============================================================
+// PLACE ROCKS
+// ============================================================
+
+printf("Generating rocks...\n");
+
+int rockCount = 0;
+
+constexpr int ROCK_SPACING = 24;
+
+for (int x = 12;
+     x < WORLD_X - 12;
+     x += ROCK_SPACING)
+{
+    for (int z = 12;
+         z < WORLD_Z - 12;
+         z += ROCK_SPACING)
+    {
+        const float n =
+            rockNoise.GetNoise(
+                static_cast<float>(x),
+                static_cast<float>(z)
+            );
+
+
+        if (n < 0.30f)
+            continue;
+
+
+        const int y =
+            heightMap[
+                HeightIndex(
+                    x,
+                    z
+                )
+            ];
+
+
+        if (y <= SEA_LEVEL ||
+            y > WORLD_Y - 20)
+        {
+            continue;
+        }
+
+
+        const int ox =
+            static_cast<int>(
+                Random01(
+                    x,
+                    y,
+                    z,
+                    6001
+                ) * 10.0f
+            ) - 5;
+
+        const int oz =
+            static_cast<int>(
+                Random01(
+                    x,
+                    y,
+                    z,
+                    6002
+                ) * 10.0f
+            ) - 5;
+
+
+        GenerateRock(
+            x + ox,
+            y,
+            z + oz,
+            7000 + rockCount
+        );
+
+        ++rockCount;
+    }
+
+
+    if (x % 192 == 12)
+    {
+        printf(
+            "  Rocks: %d\n",
+            rockCount
+        );
+    }
+}
+
+
+printf(
+    "Trees generated: %d\n",
+    treeCount
+);
+
+printf(
+    "Rocks generated: %d\n",
+    rockCount
+);
+
+    // ============================================================
+    // COMPLETE
+    // ============================================================
+
+    printf(
+        "\n=== WORLD GENERATION COMPLETE ===\n"
+    );
+
+    printf(
+        "Chunks: %d\n",
+        totalChunks
+    );
+
+    printf(
+        "World: %d x %d x %d voxels\n",
+        WORLD_X,
+        WORLD_Y,
+        WORLD_Z
+    );
+
+    printf(
+        "Trees: %d\n",
+        treeCount
+    );
+
+    printf(
+        "Rocks: %d\n",
+        rockCount
+    );
+
+    printf(
+        "Origin: %d, %d, %d\n",
+        worldOrigin.x,
+        worldOrigin.y,
+        worldOrigin.z
+    );
+}
+    
 void GenerateCaves(VoxelManager& vm)
 {
     for (int x = 0; x < 4; x++)
@@ -3030,6 +1930,1239 @@ void GenerateCaves(VoxelManager& vm)
             }
         }
     }
+}
+
+
+void GenerateFreaky(VoxelManager& vm)
+{
+    constexpr int CHUNK_SIZE = 64;
+
+    constexpr int CHUNKS_X = 30;
+    constexpr int CHUNKS_Y = 3;
+    constexpr int CHUNKS_Z = 30;
+
+    constexpr int WORLD_X = CHUNKS_X * CHUNK_SIZE;
+    constexpr int WORLD_Y = CHUNKS_Y * CHUNK_SIZE;
+    constexpr int WORLD_Z = CHUNKS_Z * CHUNK_SIZE;
+
+    // Structure cells.
+    constexpr int CELL = 16;
+
+    // 64 / 16 = 4 cells per chunk.
+    constexpr int CELLS_X = WORLD_X / CELL;
+    constexpr int CELLS_Y = WORLD_Y / CELL;
+    constexpr int CELLS_Z = WORLD_Z / CELL;
+
+    constexpr uint32_t SEED = 1337;
+
+
+    // ============================================================
+    // MATERIALS
+    // ============================================================
+
+    auto MakeVoxel =
+        [](uint8_t r, uint8_t g, uint8_t b)
+    {
+        Voxel v{};
+
+        v.set_r(r);
+        v.set_g(g);
+        v.set_b(b);
+        v.set_solid(true);
+
+        return v;
+    };
+
+    const Voxel stone =
+        MakeVoxel(13, 14, 15);
+
+    const Voxel stoneDark =
+        MakeVoxel(8, 9, 10);
+
+    const Voxel metal =
+        MakeVoxel(18, 19, 20);
+
+    const Voxel metalDark =
+        MakeVoxel(10, 11, 12);
+
+    const Voxel glow =
+        MakeVoxel(28, 22, 8);
+
+    const Voxel black =
+        MakeVoxel(2, 2, 3);
+
+
+    // ============================================================
+    // FAST HASH
+    // ============================================================
+
+    auto Hash =
+        [](uint32_t x) -> uint32_t
+    {
+        x ^= x >> 16;
+        x *= 0x7feb352dU;
+
+        x ^= x >> 15;
+        x *= 0x846ca68bU;
+
+        x ^= x >> 16;
+
+        return x;
+    };
+
+
+    auto Hash3 =
+        [&](int x, int y, int z, uint32_t salt) -> uint32_t
+    {
+        uint32_t h =
+            static_cast<uint32_t>(x) * 374761393U;
+
+        h +=
+            static_cast<uint32_t>(y) * 668265263U;
+
+        h +=
+            static_cast<uint32_t>(z) * 2147483647U;
+
+        h +=
+            salt * 2246822519U;
+
+        h +=
+            SEED * 3266489917U;
+
+        return Hash(h);
+    };
+
+
+    auto Hash01 =
+        [&](int x, int y, int z, uint32_t salt) -> float
+    {
+        return static_cast<float>(
+            Hash3(x, y, z, salt)
+        ) / 4294967295.0f;
+    };
+
+
+    auto HashChance =
+        [&](int x, int y, int z,
+            uint32_t salt,
+            float chance) -> bool
+    {
+        return Hash01(x, y, z, salt) < chance;
+    };
+
+
+    // ============================================================
+    // VOXEL COLOR RANDOMIZATION
+    //
+    // This happens once when a voxel is generated.
+    // ============================================================
+
+    auto Randomize =
+        [&](Voxel voxel,
+            int x,
+            int y,
+            int z,
+            uint32_t salt)
+    {
+        const uint32_t h =
+            Hash3(x, y, z, salt);
+
+        // -2 ... +2
+        const int variation =
+            static_cast<int>(h % 5U) - 2;
+
+        voxel.set_r(
+            static_cast<uint8_t>(
+                std::clamp(
+                    static_cast<int>(voxel.r()) +
+                        variation,
+                    0,
+                    31
+                )
+            )
+        );
+
+        voxel.set_g(
+            static_cast<uint8_t>(
+                std::clamp(
+                    static_cast<int>(voxel.g()) +
+                        variation,
+                    0,
+                    31
+                )
+            )
+        );
+
+        voxel.set_b(
+            static_cast<uint8_t>(
+                std::clamp(
+                    static_cast<int>(voxel.b()) +
+                        variation,
+                    0,
+                    31
+                )
+            )
+        );
+
+        return voxel;
+    };
+
+
+    // ============================================================
+    // ALLOCATE CHUNKS
+    // ============================================================
+
+    printf("\n=== GENERATING MEGASTRUCTURE ===\n");
+
+    printf(
+        "Allocating %d x %d x %d chunks...\n",
+        CHUNKS_X,
+        CHUNKS_Y,
+        CHUNKS_Z
+    );
+
+    const int totalChunks =
+        CHUNKS_X *
+        CHUNKS_Y *
+        CHUNKS_Z;
+
+    int allocated = 0;
+
+    for (int x = 0; x < CHUNKS_X; ++x)
+    {
+        for (int y = 0; y < CHUNKS_Y; ++y)
+        {
+            for (int z = 0; z < CHUNKS_Z; ++z)
+            {
+                vm.AllocateChunk(
+                    glm::ivec3(x, y, z)
+                );
+
+                ++allocated;
+            }
+
+            printf(
+                "  Chunks: %d / %d (%.1f%%)\n",
+                allocated,
+                totalChunks,
+                allocated * 100.0f /
+                    totalChunks
+            );
+        }
+    }
+
+
+    // ============================================================
+    // BUILD OCCUPANCY
+    // ============================================================
+
+    printf("Generating chunk occupancy map...\n");
+
+    vm.GenerateChunkOccupancyMap();
+
+
+    // ============================================================
+    // WORLD ORIGIN
+    //
+    // Everything below is generated in local voxel coordinates
+    // starting at 0,0,0.
+    //
+    // SetVoxel receives:
+    //
+    //     localPosition + worldOrigin
+    //
+    // so the generator works regardless of where the occupancy
+    // tree happens to be located.
+    // ============================================================
+
+    const glm::ivec3 worldOrigin =
+        vm.chunk_occupancy.position *
+        CHUNK_SIZE;
+
+    printf(
+        "Occupancy origin: %d %d %d\n",
+        vm.chunk_occupancy.position.x,
+        vm.chunk_occupancy.position.y,
+        vm.chunk_occupancy.position.z
+    );
+
+    printf(
+        "Voxel origin: %d %d %d\n",
+        worldOrigin.x,
+        worldOrigin.y,
+        worldOrigin.z
+    );
+
+
+    // ============================================================
+    // SET VOXEL HELPER
+    // ============================================================
+
+    auto Set =
+        [&](int x, int y, int z,
+            const Voxel& voxel,
+            uint32_t randomSalt)
+    {
+        if (x < 0 || x >= WORLD_X ||
+            y < 0 || y >= WORLD_Y ||
+            z < 0 || z >= WORLD_Z)
+        {
+            return;
+        }
+
+        vm.SetVoxel(
+            worldOrigin +
+                glm::ivec3(x, y, z),
+
+            Randomize(
+                voxel,
+                x,
+                y,
+                z,
+                randomSalt
+            )
+        );
+    };
+
+
+    // ============================================================
+    // CELL STRUCTURE TYPES
+    //
+    // This mirrors the original generator:
+    //
+    // 0 open
+    // 1 stacked floors
+    // 2 girder lattice
+    // 3 solid mass
+    // 4 catwalk
+    // 5 dense slabs
+    // 6 stairs
+    // 7 pipes
+    // 8 rubble
+    // 9 ziggurat
+    // 10 shell
+    // ============================================================
+
+    enum StructureType
+    {
+        OPEN,
+        FLOORS,
+        LATTICE,
+        MASS,
+        CATWALK,
+        SLABS,
+        STAIRS,
+        PIPES,
+        RUBBLE,
+        ZIGGURAT,
+        SHELL
+    };
+
+
+    auto GetStructureType =
+        [&](int cx, int cy, int cz)
+        -> StructureType
+    {
+        const float t =
+            Hash01(
+                cx,
+                cy,
+                cz,
+                7
+            );
+
+        if (t < 0.12f)
+            return OPEN;
+
+        if (t < 0.26f)
+            return FLOORS;
+
+        if (t < 0.39f)
+            return LATTICE;
+
+        if (t < 0.46f)
+            return MASS;
+
+        if (t < 0.55f)
+            return CATWALK;
+
+        if (t < 0.61f)
+            return SLABS;
+
+        if (t < 0.71f)
+            return STAIRS;
+
+        if (t < 0.80f)
+            return PIPES;
+
+        if (t < 0.85f)
+            return RUBBLE;
+
+        if (t < 0.91f)
+            return ZIGGURAT;
+
+        return SHELL;
+    };
+
+
+    // ============================================================
+    // CELL VOXEL GENERATOR
+    // ============================================================
+
+    auto GenerateCell =
+        [&](int cx, int cy, int cz)
+    {
+        const int baseX =
+            cx * CELL;
+
+        const int baseY =
+            cy * CELL;
+
+        const int baseZ =
+            cz * CELL;
+
+
+        const StructureType type =
+            GetStructureType(
+                cx,
+                cy,
+                cz
+            );
+
+
+        // --------------------------------------------------------
+        // OCCASIONAL PILLARS
+        // --------------------------------------------------------
+
+        const bool pillar =
+            (HashChance(
+                cx / 3,
+                cy,
+                cz / 3,
+                100,
+                0.72f
+            ));
+
+
+        if (pillar)
+        {
+            constexpr int PILLAR = 2;
+
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                const bool glowBand =
+                    (ly % 4) == 0;
+
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    const bool left =
+                        lx < PILLAR;
+
+                    const bool right =
+                        lx >= CELL - PILLAR;
+
+                    if (!left && !right)
+                        continue;
+
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        const bool front =
+                            lz < PILLAR;
+
+                        const bool back =
+                            lz >= CELL - PILLAR;
+
+                        if (!front && !back)
+                            continue;
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            glowBand
+                                ? glow
+                                : metal,
+
+                            glowBand
+                                ? 300
+                                : 301
+                        );
+                    }
+                }
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // OPEN
+        // --------------------------------------------------------
+
+        if (type == OPEN)
+            return;
+
+
+        // --------------------------------------------------------
+        // STACKED FLOORS
+        // --------------------------------------------------------
+
+        if (type == FLOORS)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                if (ly >= 2 &&
+                    ly < CELL - 2)
+                    continue;
+
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            metal,
+
+                            100
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // GIRDER LATTICE
+        // --------------------------------------------------------
+
+        if (type == LATTICE)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        if ((ly % 3) < 2 ||
+                            (lx % 4) < 2 ||
+                            (lz % 4) < 2)
+                        {
+                            Set(
+                                baseX + lx,
+                                baseY + ly,
+                                baseZ + lz,
+
+                                metalDark,
+
+                                101
+                            );
+                        }
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // SOLID MASS
+        // --------------------------------------------------------
+
+        if (type == MASS)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            stone,
+
+                            102
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // CATWALK
+        // --------------------------------------------------------
+
+        if (type == CATWALK)
+        {
+            constexpr int mid =
+                CELL / 2;
+
+            for (int ly = mid - 1;
+                 ly <= mid + 1;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            metal,
+
+                            103
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // DENSE SLABS
+        // --------------------------------------------------------
+
+        if (type == SLABS)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        const bool slab =
+                            (lx % 3) >= 1 &&
+                            (lz % 3) >= 1;
+
+                        const bool shelf =
+                            (ly % 4) == 0;
+
+                        if (!slab && !shelf)
+                            continue;
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            shelf
+                                ? metal
+                                : stone,
+
+                            104
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // STAIRS
+        // --------------------------------------------------------
+
+        if (type == STAIRS)
+        {
+            constexpr int STEP_W = 2;
+            constexpr int STEP_H = 2;
+
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                const int step =
+                    ly / STEP_H;
+
+                const int treadX =
+                    (step * STEP_W) %
+                    CELL;
+
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        bool solid = false;
+
+                        // Tread.
+                        if ((ly % STEP_H) == 0 &&
+                            lx >= treadX &&
+                            lx < treadX + STEP_W + 1)
+                        {
+                            solid = true;
+                        }
+
+                        // Riser.
+                        if (lx == treadX)
+                            solid = true;
+
+                        // Side walls.
+                        if ((lz == 0 ||
+                             lz == CELL - 1) &&
+                            lx >= treadX - 1 &&
+                            lx < treadX + STEP_W + 1)
+                        {
+                            solid = true;
+                        }
+
+                        if (!solid)
+                            continue;
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            metal,
+
+                            105
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // PIPE BUNDLE
+        // --------------------------------------------------------
+
+        if (type == PIPES)
+        {
+            constexpr int pipeX[3] =
+            {
+                4, 11, 7
+            };
+
+            constexpr int pipeZ[3] =
+            {
+                4, 4, 11
+            };
+
+            constexpr int radius[3] =
+            {
+                2, 2, 3
+            };
+
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        bool solid = false;
+                        bool isGlow = false;
+
+                        for (int p = 0;
+                             p < 3;
+                             ++p)
+                        {
+                            const int dx =
+                                lx - pipeX[p];
+
+                            const int dz =
+                                lz - pipeZ[p];
+
+                            const int d2 =
+                                dx * dx +
+                                dz * dz;
+
+                            const int r =
+                                radius[p];
+
+                            if (d2 <= r * r &&
+                                d2 >=
+                                    (r - 1) *
+                                    (r - 1))
+                            {
+                                solid = true;
+                            }
+
+                            if (d2 <=
+                                    (r - 2) *
+                                    (r - 2) &&
+                                ly % 4 == 0)
+                            {
+                                isGlow = true;
+                            }
+                        }
+
+                        // Pipe flanges.
+                        if (ly % 5 == 0)
+                        {
+                            for (int p = 0;
+                                 p < 3;
+                                 ++p)
+                            {
+                                const int dx =
+                                    std::abs(
+                                        lx -
+                                        pipeX[p]
+                                    );
+
+                                const int dz =
+                                    std::abs(
+                                        lz -
+                                        pipeZ[p]
+                                    );
+
+                                if (dx <= radius[p] + 1 &&
+                                    dz <= radius[p] + 1)
+                                {
+                                    solid = true;
+                                }
+                            }
+                        }
+
+                        if (!solid &&
+                            !isGlow)
+                            continue;
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            isGlow
+                                ? glow
+                                : stone,
+
+                            106
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // RUBBLE
+        // --------------------------------------------------------
+
+        if (type == RUBBLE)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                const float height =
+                    static_cast<float>(ly) /
+                    static_cast<float>(CELL);
+
+                const float fill =
+                    0.85f -
+                    height * 0.70f;
+
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        if (Hash01(
+                                baseX + lx,
+                                baseY + ly,
+                                baseZ + lz,
+                                33
+                            ) >= fill)
+                        {
+                            continue;
+                        }
+
+                        const float material =
+                            Hash01(
+                                baseX + lx,
+                                baseY + ly,
+                                baseZ + lz,
+                                34
+                            );
+
+                        const Voxel* voxel;
+
+                        if (material < 0.07f)
+                            voxel = &glow;
+                        else if (material < 0.30f)
+                            voxel = &metal;
+                        else
+                            voxel = &stone;
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            *voxel,
+
+                            107
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // ZIGGURAT
+        // --------------------------------------------------------
+
+        if (type == ZIGGURAT)
+        {
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                const int band =
+                    (CELL - 1 - ly) / 2;
+
+                const int min =
+                    band;
+
+                const int max =
+                    CELL - 1 - band;
+
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        if (lx < min ||
+                            lx > max ||
+                            lz < min ||
+                            lz > max)
+                        {
+                            Set(
+                                baseX + lx,
+                                baseY + ly,
+                                baseZ + lz,
+
+                                stone,
+
+                                108
+                            );
+
+                            continue;
+                        }
+
+                        if (lx == min ||
+                            lx == max ||
+                            lz == min ||
+                            lz == max)
+                        {
+                            Set(
+                                baseX + lx,
+                                baseY + ly,
+                                baseZ + lz,
+
+                                metal,
+
+                                109
+                            );
+                        }
+                    }
+                }
+            }
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // SHELL
+        // --------------------------------------------------------
+
+        if (type == SHELL)
+        {
+            constexpr int shell = 1;
+
+            for (int ly = 0;
+                 ly < CELL;
+                 ++ly)
+            {
+                for (int lx = 0;
+                     lx < CELL;
+                     ++lx)
+                {
+                    for (int lz = 0;
+                         lz < CELL;
+                         ++lz)
+                    {
+                        if (lx >= shell &&
+                            lx < CELL - shell &&
+                            ly >= shell &&
+                            ly < CELL - shell &&
+                            lz >= shell &&
+                            lz < CELL - shell)
+                        {
+                            continue;
+                        }
+
+                        Set(
+                            baseX + lx,
+                            baseY + ly,
+                            baseZ + lz,
+
+                            metal,
+
+                            110
+                        );
+                    }
+                }
+            }
+
+            return;
+        }
+    };
+
+
+    // ============================================================
+    // GENERATE CELLS
+    //
+    // 4 x 4 x 4 cells per 64 voxel chunk.
+    //
+    // This is only:
+    //
+    // 120 x 12 x 120 = 172,800 cells
+    //
+    // instead of treating the world as a collection of
+    // FillVoxels operations.
+    // ============================================================
+
+    printf(
+        "\nGenerating %d x %d x %d structure cells...\n",
+        CELLS_X,
+        CELLS_Y,
+        CELLS_Z
+    );
+
+    const int totalCells =
+        CELLS_X *
+        CELLS_Y *
+        CELLS_Z;
+
+    int generatedCells = 0;
+
+
+    for (int cy = 0;
+         cy < CELLS_Y;
+         ++cy)
+    {
+        for (int cx = 0;
+             cx < CELLS_X;
+             ++cx)
+        {
+            for (int cz = 0;
+                 cz < CELLS_Z;
+                 ++cz)
+            {
+                GenerateCell(
+                    cx,
+                    cy,
+                    cz
+                );
+
+                ++generatedCells;
+            }
+        }
+
+        printf(
+            "  Cells: %d / %d (%.1f%%)\n",
+            generatedCells,
+            totalCells,
+            generatedCells * 100.0f /
+                totalCells
+        );
+    }
+
+
+    // ============================================================
+    // ADD LARGE-SCALE VERTICAL SHAFTS
+    //
+    // These are deliberately sparse so they don't dominate
+    // generation time.
+    // ============================================================
+
+    printf("\nGenerating vertical shafts...\n");
+
+    int shafts = 0;
+
+    for (int x = 32;
+         x < WORLD_X;
+         x += 96)
+    {
+        for (int z = 32;
+             z < WORLD_Z;
+             z += 96)
+        {
+            if (!HashChance(
+                    x / 96,
+                    0,
+                    z / 96,
+                    500,
+                    0.35f
+                ))
+            {
+                continue;
+            }
+
+            ++shafts;
+
+            const int radius =
+                2 +
+                static_cast<int>(
+                    Hash01(
+                        x,
+                        0,
+                        z,
+                        501
+                    ) * 3.0f
+                );
+
+            for (int y = 0;
+                 y < WORLD_Y;
+                 ++y)
+            {
+                for (int dx = -radius;
+                     dx <= radius;
+                     ++dx)
+                {
+                    for (int dz = -radius;
+                         dz <= radius;
+                         ++dz)
+                    {
+                        const int d2 =
+                            dx * dx +
+                            dz * dz;
+
+                        if (d2 >
+                            radius * radius)
+                        {
+                            continue;
+                        }
+
+                        Set(
+                            x + dx,
+                            y,
+                            z + dz,
+
+                            (y % 8 == 0)
+                                ? glow
+                                : metalDark,
+
+                            502
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    printf(
+        "  Shafts: %d\n",
+        shafts
+    );
+
+
+    // ============================================================
+    // DONE
+    // ============================================================
+
+    printf(
+        "\n=== MEGASTRUCTURE COMPLETE ===\n"
+    );
+
+    printf(
+        "Chunks: %d\n",
+        totalChunks
+    );
+
+    printf(
+        "Cells: %d\n",
+        totalCells
+    );
+
+    printf(
+        "World: %d x %d x %d voxels\n",
+        WORLD_X,
+        WORLD_Y,
+        WORLD_Z
+    );
+
+    printf(
+        "Occupancy origin: %d %d %d\n",
+        vm.chunk_occupancy.position.x,
+        vm.chunk_occupancy.position.y,
+        vm.chunk_occupancy.position.z
+    );
 }
 
 }

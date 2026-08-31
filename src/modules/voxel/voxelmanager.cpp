@@ -320,7 +320,7 @@ void VoxelManager::GenerateChunkOccupancyMap() {
     }
     
     chunk_occupancy.position = min;
-    
+    printf("%d, %d, %d", chunk_occupancy.position.x, chunk_occupancy.position.y, chunk_occupancy.position.z);
     // Fill map with empty entries
     for (size_t i = 0; i < newSize; ++i) {
         chunk_occupancy.chunks[i] = nullptr;

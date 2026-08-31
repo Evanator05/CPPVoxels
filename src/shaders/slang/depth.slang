@@ -48,7 +48,7 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
     ray.direction = normalize(mul(camera.rotation, float3(ndc, 1.0)));
 
     float3 color = float3(0, 0, 0);
-    TraceResult result = TraceWorld(ray, maxDepth, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+    TraceResult result = TraceWorld(ray, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
 
-    depthImage[pos] = min(max(result.depth-0.1, 0), maxDepth);
+    depthImage[pos] = min(max(result.depth-1, 0), maxDepth);
 }

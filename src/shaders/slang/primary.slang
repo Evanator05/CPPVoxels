@@ -1,4 +1,5 @@
 #include "raytrace.slangh"
+#include  "sky.slangh"
 
 struct CameraTransform {
     int3 chunkPos;
@@ -52,25 +53,28 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
     ray.origin += ray.direction * depthImage[pos];
 
     float3 color = float3(0, 0, 0);
-    TraceResult result = TraceWorld(ray, -1, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+    TraceResult result = TraceWorld(ray, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
 
-    float3 lightDir = normalize(float3(sin(camera.time/1000), 1, cos(camera.time/1000)));
+    float3 lightDir = normalize(float3(sin(camera.time/100), 1, cos(camera.time/100)));
 
     if (result.hit) {
 
         color = result.voxel.color();
-
+        
         Ray lightRay;
         lightRay.origin = result.position + float3(0.5);
         lightRay.direction = lightDir;
-        lightRay.origin += result.normal*0.75;
+        lightRay.origin += result.normal*0.55;
 
-        TraceResult lightRayResult = TraceWorld(lightRay, -1, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+        TraceResult lightRayResult = TraceWorld(lightRay, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
         if (lightRayResult.hit) {
             color *= 0.7;
         }
-        color *= 0.8 + 0.2 * max(dot(lightDir, result.normal), 0.0);
+        //color *= 0.8 + 0.2 * max(dot(lightDir, result.normal), 0.0);
+    } else {
+        color = skyColor(ray.direction, camera.localPos, camera.time, lightDir);
     }
+    
     //color = abs(result.normal);
     depthImage[pos] = max(result.depth, 0);
     albedoImage[pos] = float4(color, 1);

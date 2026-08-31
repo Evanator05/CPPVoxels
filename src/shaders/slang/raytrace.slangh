@@ -112,7 +112,7 @@ uint NodeChild(StructuredBuffer<ContreeNode> nodes,uint nodeIndex,uint childInde
     return nodes[nodeIndex].child_nodes[childIndex];
 }
 
-TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> contreeNodes, StructuredBuffer<Chunk> chunks, StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader, StructuredBuffer<uint32_t> chunkPositions) {
+TraceResult TraceWorld(Ray ray, StructuredBuffer<ContreeNode> contreeNodes, StructuredBuffer<Chunk> chunks, StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader, StructuredBuffer<uint32_t> chunkPositions) {
     TraceResult result;
 
     result.hit = false;
@@ -186,7 +186,6 @@ TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> co
 
     for (int i = 0; i < maxSteps; ++i) {
         if (any(ddaState.pos < 0) || any(ddaState.pos >= int3(regionSize))) break;
-        if (maxDepth >= 0.0 && ddaState.entryDepth > maxDepth) break;
 
         int3 localChunkPos = ddaState.pos;
 
@@ -204,7 +203,6 @@ TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> co
                 TraceChunk(
                     chunk,
                     ray,
-                    maxDepth,
                     ddaState.entryDepth,
                     ddaState.mask,
                     contreeNodes
@@ -231,7 +229,7 @@ TraceResult TraceWorld(Ray ray, float maxDepth, StructuredBuffer<ContreeNode> co
     return result;
 }
 
-TraceResult TraceChunk(Chunk chunk, Ray ray, float maxDepth, float startDepth, bool3 entryMask, StructuredBuffer<ContreeNode> contreeNodes) {
+TraceResult TraceChunk(Chunk chunk, Ray ray, float startDepth, bool3 entryMask, StructuredBuffer<ContreeNode> contreeNodes) {
     TraceResult result;
 
     result.hit = false;
@@ -346,7 +344,6 @@ TraceResult TraceChunk(Chunk chunk, Ray ray, float maxDepth, float startDepth, b
 
             if (v.solid()) {
                 float hitDepth = st.entryDepth;
-                if (maxDepth >= 0.0 && hitDepth > maxDepth) break;
 
                 result.normal = -float3(st.rayStep) * float3(st.mask);
 
