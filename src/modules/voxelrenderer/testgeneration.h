@@ -13,4 +13,5 @@ namespace Generator {
     void GenerateWorld(VoxelManager &vm);
     void GenerateCaves(VoxelManager &vm);
     void GenerateFreaky(VoxelManager& vm);
+    void LoadVoxFile(VoxelManager& vm, const char* filename);
 }   

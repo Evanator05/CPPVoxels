@@ -17,11 +17,11 @@ class VoxelManager : public EngineModule {
         void Process(void) override;
         void Shutdown(void) override;
 
-        Relptr<ContreeDataBase> AllocateContreeNode(void);
-        void FreeContreeNode(Relptr<ContreeDataBase> root);
-        //void FreeContreeNode(Relptr<ContreeDataBase> root);
-        Relptr<AllocatedChunksBase> AllocateChunk(glm::ivec3 position);
-        void FreeChunk(Relptr<AllocatedChunksBase> chunk);
+        uint32_t AllocateContreeNode(void);
+        void FreeContreeNode(uint32_t root);
+        //void FreeContreeNode(uint32_t root);
+        uint32_t AllocateChunk(glm::ivec3 position);
+        void FreeChunk(uint32_t chunk);
 
         uint32_t GetChunkIndex(glm::ivec3 position);
 
@@ -31,24 +31,23 @@ class VoxelManager : public EngineModule {
         void SetVoxel(glm::ivec3 position, Voxel voxel);
         Voxel GetVoxel(glm::ivec3 position);
         // chunk space getting and setting voxels
-        void SetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position, Voxel voxel);
-        Voxel GetVoxel(Relptr<AllocatedChunksBase> chunk, glm::uvec3 position);
+        void SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel);
+        Voxel GetVoxel(uint32_t chunk, glm::uvec3 position);
 
-        void FillNodeUniform(Relptr<ContreeDataBase> node, Voxel voxel);
+        void FillNodeUniform(uint32_t node, Voxel voxel);
 
         void FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
-        void FillVoxels(Relptr<ContreeDataBase> node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
+        void FillVoxels(uint32_t node, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel);
 
         void FillSDF(Voxel voxel, std::function<float(glm::vec3 pos)>);
-        void FillSDF(Relptr<ContreeDataBase> node, Voxel voxel, std::function<float(glm::vec3 pos)>);
+        void FillSDF(uint32_t node, Voxel voxel, std::function<float(glm::vec3 pos)>);
 
         void GenerateChunkOccupancyMap(void);
         
         size_t GetChunkDataAllocatedBytes(void) const; // returns allocated data byte count
 
-        std::string DumpContreeGraph(uint32_t rootIndex);
-
-        std::vector<ContreeNode> contree_data{};
+        std::vector<ContreeHeader> contree_headers{};
+        std::vector<ContreeData> contree_data{};
         std::vector<Chunk> allocated_chunks{};
         ChunkPositions chunk_occupancy{};
     private:

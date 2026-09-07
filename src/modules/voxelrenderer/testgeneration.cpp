@@ -2,11 +2,17 @@
 #include "glm/vec3.hpp"
 #include "glm/vec2.hpp"
 #include "glm/mat3x3.hpp"
-#include <glm/ext/matrix_relational.hpp> // Often required for matrix extensions
+#include <glm/ext/matrix_relational.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+
 #include <math.h>
 #include <algorithm>
+#include <vector>
+#include <unordered_set>
 
+#include <fstream>
+#include <vector>
+#include "ogt_vox.h"
 namespace Generator {
 
 void GenerateWorld(VoxelManager& vm)
@@ -724,6 +730,7 @@ auto GenerateTree =
         int z,
         uint32_t seed)
 {
+    groundY -= 12;
     const float random =
         Random01(
             x,
@@ -1931,7 +1938,6 @@ void GenerateCaves(VoxelManager& vm)
         }
     }
 }
-
 
 void GenerateFreaky(VoxelManager& vm)
 {
@@ -3164,5 +3170,501 @@ void GenerateFreaky(VoxelManager& vm)
         vm.chunk_occupancy.position.z
     );
 }
+
+struct IVec3Hash
+{
+    size_t operator()(const glm::ivec3& v) const noexcept
+    {
+        size_t h = 0;
+
+        h ^= std::hash<int>{}(v.x) +
+             0x9e3779b9 +
+             (h << 6) +
+             (h >> 2);
+
+        h ^= std::hash<int>{}(v.y) +
+             0x9e3779b9 +
+             (h << 6) +
+             (h >> 2);
+
+        h ^= std::hash<int>{}(v.z) +
+             0x9e3779b9 +
+             (h << 6) +
+             (h >> 2);
+
+        return h;
+    }
+};
+
+
+static int FloorDiv(int value, int divisor)
+{
+    int result = value / divisor;
+    int remainder = value % divisor;
+
+    if (remainder != 0 &&
+        ((remainder < 0) != (divisor < 0)))
+    {
+        --result;
+    }
+
+    return result;
+}
+
+
+void LoadVoxFile(
+    VoxelManager& vm,
+    const char* filename
+)
+{
+    constexpr int CHUNK_SIZE = 64;
+
+
+    // ============================================================
+    // LOAD VOX FILE
+    // ============================================================
+
+    std::ifstream file(filename, std::ios::binary | std::ios::ate);
+
+if (!file)
+{
+    printf("Failed to open VOX file: %s\n", filename);
+    return;
+}
+
+const std::streamsize fileSize = file.tellg();
+
+if (fileSize <= 0)
+{
+    printf("VOX file is empty: %s\n", filename);
+    return;
+}
+
+file.seekg(0, std::ios::beg);
+
+std::vector<uint8_t> fileData(
+    static_cast<size_t>(fileSize)
+);
+
+if (!file.read(
+        reinterpret_cast<char*>(fileData.data()),
+        fileSize
+    ))
+{
+    printf("Failed to read VOX file: %s\n", filename);
+    return;
+}
+
+const ogt_vox_scene* scene =
+    ogt_vox_read_scene(
+        fileData.data(),
+        static_cast<uint32_t>(fileData.size())
+    );
+
+if (!scene)
+{
+    printf("Failed to parse VOX file: %s\n", filename);
+    return;
+}
+
+
+    printf(
+        "\n=== LOADING VOX FILE ===\n"
+    );
+
+    printf(
+        "File: %s\n",
+        filename
+    );
+
+    printf(
+        "Models: %u\n",
+        scene->num_models
+    );
+
+    printf(
+        "Instances: %u\n",
+        scene->num_instances
+    );
+
+
+    // ============================================================
+    // TEMPORARY VOXEL
+    //
+    // We first collect all voxels because chunks must exist before
+    // GenerateChunkOccupancyMap() is called.
+    // ============================================================
+
+    struct LoadedVoxel
+    {
+        glm::ivec3 position;
+        Voxel voxel;
+    };
+
+
+    std::vector<LoadedVoxel> loadedVoxels;
+
+    std::unordered_set<
+        glm::ivec3,
+        IVec3Hash
+    > requiredChunks;
+
+
+    // ============================================================
+    // READ INSTANCES
+    // ============================================================
+
+    for (
+        uint32_t instanceIndex = 0;
+        instanceIndex < scene->num_instances;
+        ++instanceIndex
+    )
+    {
+        const ogt_vox_instance& instance =
+            scene->instances[instanceIndex];
+
+        const ogt_vox_model* model =
+            scene->models[
+                instance.model_index
+            ];
+
+        const ogt_vox_transform& transform =
+            instance.transform;
+
+
+        if (!model)
+            continue;
+
+
+        // --------------------------------------------------------
+        // MODEL PIVOT
+        // --------------------------------------------------------
+
+        const int pivotX =
+            static_cast<int>(model->size_x) / 2;
+
+        const int pivotY =
+            static_cast<int>(model->size_y) / 2;
+
+        const int pivotZ =
+            static_cast<int>(model->size_z) / 2;
+
+
+        // --------------------------------------------------------
+        // READ VOXELS
+        // --------------------------------------------------------
+
+        uint32_t voxelIndex = 0;
+
+
+        for (
+            uint32_t z = 0;
+            z < model->size_z;
+            ++z
+        )
+        {
+            for (
+                uint32_t y = 0;
+                y < model->size_y;
+                ++y
+            )
+            {
+                for (
+                    uint32_t x = 0;
+                    x < model->size_x;
+                    ++x,
+                    ++voxelIndex
+                )
+                {
+                    const uint8_t colorIndex =
+                        model->voxel_data[
+                            voxelIndex
+                        ];
+
+
+                    // 0 = empty voxel.
+                    if (colorIndex == 0)
+                        continue;
+
+
+                    // ====================================================
+                    // MODEL-LOCAL POSITION
+                    // ====================================================
+
+                    const int localX =
+                        static_cast<int>(x) -
+                        pivotX;
+
+                    const int localY =
+                        static_cast<int>(y) -
+                        pivotY;
+
+                    const int localZ =
+                        static_cast<int>(z) -
+                        pivotZ;
+
+
+                    // ====================================================
+                    // APPLY MAGICA VOXEL TRANSFORM
+                    //
+                    // Transform voxel centers rather than corners.
+                    // ====================================================
+
+                    const float fx =
+                        transform.m00 *
+                            (localX + 0.5f) +
+
+                        transform.m10 *
+                            (localY + 0.5f) +
+
+                        transform.m20 *
+                            (localZ + 0.5f) +
+
+                        transform.m30;
+
+
+                    const float fy =
+                        transform.m01 *
+                            (localX + 0.5f) +
+
+                        transform.m11 *
+                            (localY + 0.5f) +
+
+                        transform.m21 *
+                            (localZ + 0.5f) +
+
+                        transform.m31;
+
+
+                    const float fz =
+                        transform.m02 *
+                            (localX + 0.5f) +
+
+                        transform.m12 *
+                            (localY + 0.5f) +
+
+                        transform.m22 *
+                            (localZ + 0.5f) +
+
+                        transform.m32;
+
+
+                    const int mx =
+                        static_cast<int>(
+                            std::floor(fx)
+                        );
+
+                    const int my =
+                        static_cast<int>(
+                            std::floor(fy)
+                        );
+
+                    const int mz =
+                        static_cast<int>(
+                            std::floor(fz)
+                        );
+
+
+                    // ====================================================
+                    // MAGICA VOXEL -> ENGINE AXES
+                    //
+                    // MagicaVoxel:
+                    //
+                    //     X -> engine X
+                    //     Z -> engine Y
+                    //     Y -> engine Z
+                    // ====================================================
+
+                    const glm::ivec3 position(
+                        mx,
+                        mz,
+                        my
+                    );
+
+
+                    // ====================================================
+                    // COLOR
+                    // ====================================================
+
+                    const ogt_vox_rgba& color =
+                        scene->palette.color[
+                            colorIndex
+                        ];
+
+
+                    Voxel voxel{};
+
+                    voxel.set_r(
+                        color.r >> 3
+                    );
+
+                    voxel.set_g(
+                        color.g >> 3
+                    );
+
+                    voxel.set_b(
+                        color.b >> 3
+                    );
+
+                    voxel.set_solid(true);
+
+
+                    // ====================================================
+                    // SAVE VOXEL
+                    // ====================================================
+
+                    loadedVoxels.push_back(
+                        {
+                            position,
+                            voxel
+                        }
+                    );
+
+
+                    // ====================================================
+                    // FIND REQUIRED CHUNK
+                    // ====================================================
+
+                    const glm::ivec3 chunkPosition(
+                        FloorDiv(
+                            position.x,
+                            CHUNK_SIZE
+                        ),
+
+                        FloorDiv(
+                            position.y,
+                            CHUNK_SIZE
+                        ),
+
+                        FloorDiv(
+                            position.z,
+                            CHUNK_SIZE
+                        )
+                    );
+
+
+                    requiredChunks.insert(
+                        chunkPosition
+                    );
+                }
+            }
+        }
+    }
+
+
+    printf(
+        "Voxels: %zu\n",
+        loadedVoxels.size()
+    );
+
+    printf(
+        "Required chunks: %zu\n",
+        requiredChunks.size()
+    );
+
+
+    // ============================================================
+    // ALLOCATE CHUNKS
+    // ============================================================
+
+    printf(
+        "Allocating chunks...\n"
+    );
+
+
+    for (
+        const glm::ivec3& chunkPosition :
+        requiredChunks
+    )
+    {
+        vm.AllocateChunk(
+            chunkPosition
+        );
+    }
+
+
+    // ============================================================
+    // GENERATE CHUNK OCCUPANCY
+    //
+    // This has to happen after every required chunk exists and
+    // before SetVoxel().
+    // ============================================================
+
+    printf(
+        "Generating chunk occupancy map...\n"
+    );
+
+    vm.GenerateChunkOccupancyMap();
+
+
+    // ============================================================
+    // WRITE VOXELS
+    // ============================================================
+
+    printf(
+        "Writing voxels...\n"
+    );
+
+
+    size_t written = 0;
+
+
+    for (
+        const LoadedVoxel& loaded :
+        loadedVoxels
+    )
+    {
+        vm.SetVoxel(
+            loaded.position,
+            loaded.voxel
+        );
+
+
+        ++written;
+
+
+        if (
+            written % 100000 == 0 ||
+            written == loadedVoxels.size()
+        )
+        {
+            printf(
+                "  Voxels: %zu / %zu (%.1f%%)\n",
+                written,
+                loadedVoxels.size(),
+                loadedVoxels.empty()
+                    ? 100.0f
+                    : written *
+                        100.0f /
+                        loadedVoxels.size()
+            );
+        }
+    }
+
+
+    // ============================================================
+    // CLEANUP
+    // ============================================================
+
+    ogt_vox_destroy_scene(
+        scene
+    );
+
+
+    printf(
+        "=== VOX LOAD COMPLETE ===\n"
+    );
+
+    printf(
+        "Chunks: %zu\n",
+        requiredChunks.size()
+    );
+
+    printf(
+        "Voxels: %zu\n",
+        loadedVoxels.size()
+    );
+}
+
 
 }

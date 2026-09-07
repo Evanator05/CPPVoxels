@@ -19,16 +19,19 @@ struct Voxel {
     }
 }
 
-struct ContreeNode {
-    static const uint8_t NODE_WIDTH = 4;
-    static const uint8_t MAX_DEPTH = 3;
-
+struct ContreeHeader {
     uint64_t isVoxelMask;
-    uint32_t child_nodes[NODE_WIDTH * NODE_WIDTH * NODE_WIDTH];
-
+    uint64_t isSolidMask;
     bool is_voxel(uint8_t index) {
         return bool((isVoxelMask >> index) & 1ull);
     }
+    bool is_solid(uint8_t index) {
+        return bool((isSolidMask >> index) & 1ull);
+    }
+};
+
+struct ContreeData {
+    uint32_t child_nodes[ContreeNode::NODE_WIDTH * ContreeNode::NODE_WIDTH * ContreeNode::NODE_WIDTH];
 
     Voxel get_voxel(uint8_t index) {
         return (Voxel)child_nodes[index];
@@ -37,6 +40,11 @@ struct ContreeNode {
     uint32_t get_ptr(uint8_t index) {
         return child_nodes[index];
     }
+};
+
+struct ContreeNode {
+    static const uint8_t NODE_WIDTH = 4;
+    static const uint8_t MAX_DEPTH = 3;
 }
 
 struct Chunk {

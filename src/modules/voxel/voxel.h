@@ -14,7 +14,7 @@ static constexpr uint32_t CHUNK_FLAG_DIRTY  = 0b00000000000000000000000000000010
 static constexpr uint32_t POINTER_EMPTY = UINT32_MAX;
 struct Voxel {
     uint32_t data = 0;
-
+    
     uint8_t r() const { return data & 0x1F; }
     uint8_t g() const { return (data >> 5) & 0x1F; }
     uint8_t b() const { return (data >> 10) & 0x1F; }
@@ -40,48 +40,83 @@ struct Voxel {
 
 static constexpr Voxel VOXEL_EMPTY = Voxel{};
 
-struct ContreeNode;
-using ContreeDataBase = RelptrBaseVector<RELPTR_TAG(cb), ContreeNode>;
-struct ContreeNode {
-    uint64_t isVoxelMask = CONTREE_VOXEL_MASK_FULL; // bit mask stating if child node data is voxel or pointer, defaults to voxel
+struct ContreeHeader {
+    uint64_t isVoxelMask = CONTREE_VOXEL_MASK_FULL;
+    uint64_t isSolidMask = 0;
+
+    bool IsVoxel(size_t index) { // if true the node has a voxel data, if false the value is a node
+        return (isVoxelMask >> index) & 1ULL; 
+    }
+    bool IsSolid(size_t index) {
+        return (isSolidMask >> index) & 1ULL; 
+    }
+};
+
+struct ContreeData {
     union {
         Voxel voxel_data[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH]{};
-        Relptr<ContreeDataBase> child_nodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH];
+        uint32_t child_nodes[CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH];
     };
 
-    size_t GetIndex(glm::uvec3 position) {
-        return position.x + position.y * CONTREE_NODE_WIDTH + position.z * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH;
-    }
-
-    Relptr<ContreeDataBase> GetPtr(size_t index) {
+    uint32_t GetPtr(size_t index) {
         return child_nodes[index];
     }
 
     Voxel GetVoxel(size_t index) {
         return voxel_data[index];
     }
+};
+
+struct ContreeNode {
+    ContreeNode(ContreeHeader *header, ContreeData *data) {
+        this->header = header;
+        this->data = data;
+    }
+
+    ContreeHeader *header;
+    ContreeData *data;
+
+    static size_t GetIndex(glm::uvec3 position) {
+        return position.x + position.y * CONTREE_NODE_WIDTH + position.z * CONTREE_NODE_WIDTH * CONTREE_NODE_WIDTH;
+    }
+
+    uint32_t GetPtr(size_t index) {
+        return data->GetPtr(index);
+    }
+
+    Voxel GetVoxel(size_t index) {
+        return data->GetVoxel(index);
+    }
 
     bool IsVoxel(size_t index) { // if true the node has a voxel data, if false the value is a node
-        return (isVoxelMask >> index) & 1ULL;
-        
+        return header->IsVoxel(index);
+    }
+
+    bool IsSolid(size_t index) {
+        return header->IsSolid(index);
     }
 
     void SetVoxel(size_t index, Voxel value) {
-        voxel_data[index] = value;
+        data->voxel_data[index] = value;
         uint64_t bit = 1ULL << index;
-        isVoxelMask |= bit;
+        header->isVoxelMask |= bit;
+        if (value.solid()) header->isSolidMask |= bit;
+        else header->isSolidMask &= ~bit;
     }
 
-    void SetPtr(size_t index, Relptr<ContreeDataBase> value) {
-        child_nodes[index] = value;
+    void SetPtr(size_t index, uint32_t value) {
+        data->child_nodes[index] = value;
+
         uint64_t bit = 1ULL << index;
-        isVoxelMask &= ~bit;
+
+        header->isVoxelMask &= ~bit;
+        header->isSolidMask |= bit;
     }
 
     bool IsUniform() {
         if (!IsVoxel(0)) return false;
 
-        Voxel value = voxel_data[0];
+        Voxel value = data->voxel_data[0];
         
         for (size_t i = 1; i < CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH*CONTREE_NODE_WIDTH; i++) {
             if (!IsVoxel(i)) return false;
@@ -94,10 +129,8 @@ struct ContreeNode {
 struct Chunk {
     glm::ivec3 position{}; // the position in chunk space of this chunk
     //alignas(16) uint32_t flags = 0; // flags about the chunk
-    Relptr<ContreeDataBase> contree_node{};
+    uint32_t contree_node{};
 };
-
-using AllocatedChunksBase = RelptrBaseVector<RELPTR_TAG(ac), Chunk>;
 
 struct ChunkPositionsHeader {
     alignas(16) glm::ivec3 position{};
@@ -107,7 +140,7 @@ struct ChunkPositionsHeader {
 struct ChunkPositions {
     alignas(16) glm::ivec3 position{};
     alignas(16) glm::uvec3 size{};
-    Relptr<AllocatedChunksBase> *chunks = nullptr; // an array of indicies into a chunks array
+    uint32_t *chunks = nullptr; // an array of indicies into a chunks array
 
     uint32_t get_size(void) { return size.x*size.y*size.z; }
 };

@@ -1,5 +1,5 @@
 #include "raytrace.slangh"
-#include  "sky.slangh"
+#include "sky.slangh"
 
 struct CameraTransform {
     int3 chunkPos;
@@ -9,19 +9,22 @@ struct CameraTransform {
 };
 
 [[vk::binding(0, 0)]]
-StructuredBuffer<ContreeNode> contreeNodes;
+StructuredBuffer<CameraTransform> cameraTransform;
 
 [[vk::binding(1, 0)]]
-StructuredBuffer<Chunk> chunks;
+StructuredBuffer<ContreeHeader> contreeHeaders;
 
 [[vk::binding(2, 0)]]
-StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+StructuredBuffer<ContreeData> contreeData;
 
 [[vk::binding(3, 0)]]
-StructuredBuffer<uint32_t> chunkPositions;
+StructuredBuffer<Chunk> chunks;
 
 [[vk::binding(4, 0)]]
-StructuredBuffer<CameraTransform> cameraTransform;
+StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+
+[[vk::binding(5, 0)]]
+StructuredBuffer<uint32_t> chunkPositions;
 
 [[vk::binding(0, 1)]]
 [format("r32f")]
@@ -32,9 +35,8 @@ RWTexture2D<float> depthImage;
 RWTexture2D<float4> albedoImage;
 
 [shader("compute")]
-[numthreads(16, 16, 1)]
-void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
-{
+[numthreads(8, 8, 1)]
+void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
     int2 pos = int2(gl_GlobalInvocationID.xy);
 
     uint imgW, imgH;
@@ -53,29 +55,29 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
     ray.origin += ray.direction * depthImage[pos];
 
     float3 color = float3(0, 0, 0);
-    TraceResult result = TraceWorld(ray, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+    TraceResult result = TraceWorld(ray, contreeHeaders, contreeData, chunks, chunkPositionsHeader, chunkPositions);
 
-    float3 lightDir = normalize(float3(sin(camera.time/100), 1, cos(camera.time/100)));
+    float3 lightDir = normalize(float3(sin(camera.time / 100), 1, cos(camera.time / 100)));
 
     if (result.hit) {
 
         color = result.voxel.color();
-        
+
         Ray lightRay;
         lightRay.origin = result.position + float3(0.5);
         lightRay.direction = lightDir;
-        lightRay.origin += result.normal*0.55;
+        lightRay.origin += result.normal * 0.55;
 
-        TraceResult lightRayResult = TraceWorld(lightRay, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+        TraceResult lightRayResult = TraceWorld(lightRay, contreeHeaders, contreeData, chunks, chunkPositionsHeader, chunkPositions);
         if (lightRayResult.hit) {
             color *= 0.7;
         }
-        //color *= 0.8 + 0.2 * max(dot(lightDir, result.normal), 0.0);
+        // color *= 0.8 + 0.2 * max(dot(lightDir, result.normal), 0.0);
     } else {
         color = skyColor(ray.direction, camera.localPos, camera.time, lightDir);
     }
-    
-    //color = abs(result.normal);
-    depthImage[pos] = max(result.depth, 0);
+
+    // color = abs(result.normal);
+    depthImage[pos] = max(result.depth + depthImage[pos], 0);
     albedoImage[pos] = float4(color, 1);
 }

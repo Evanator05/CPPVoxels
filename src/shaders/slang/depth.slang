@@ -8,26 +8,29 @@ struct CameraTransform {
 };
 
 [[vk::binding(0, 0)]]
-StructuredBuffer<ContreeNode> contreeNodes;
+StructuredBuffer<CameraTransform> cameraTransform;
 
 [[vk::binding(1, 0)]]
-StructuredBuffer<Chunk> chunks;
+StructuredBuffer<ContreeHeader> contreeHeaders;
 
 [[vk::binding(2, 0)]]
-StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+StructuredBuffer<ContreeData> contreeData;
 
 [[vk::binding(3, 0)]]
-StructuredBuffer<uint32_t> chunkPositions;
+StructuredBuffer<Chunk> chunks;
 
 [[vk::binding(4, 0)]]
-StructuredBuffer<CameraTransform> cameraTransform;
+StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+
+[[vk::binding(5, 0)]]
+StructuredBuffer<uint32_t> chunkPositions;
 
 [[vk::binding(0, 1)]]
 [format("r32f")]
 RWTexture2D<float> depthImage;
 
 [shader("compute")]
-[numthreads(16, 16, 1)]
+[numthreads(8, 8, 1)]
 void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
 {
     int2 pos = int2(gl_GlobalInvocationID.xy);
@@ -48,7 +51,7 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID)
     ray.direction = normalize(mul(camera.rotation, float3(ndc, 1.0)));
 
     float3 color = float3(0, 0, 0);
-    TraceResult result = TraceWorld(ray, contreeNodes, chunks, chunkPositionsHeader, chunkPositions);
+    TraceResult result = TraceWorld(ray, contreeHeaders, contreeData, chunks, chunkPositionsHeader, chunkPositions, maxDepth);
 
-    depthImage[pos] = min(max(result.depth-1, 0), maxDepth);
+    depthImage[pos] = min(max(result.depth-10, 0), maxDepth);
 }

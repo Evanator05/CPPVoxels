@@ -23,7 +23,6 @@ class Input : public EngineModule {
         void HandleKeyEvent(SDL_Keycode key, bool pressed);
         void HandleGamepadButtonEvent(Uint8 button, bool pressed);
 
-
         void CreateAction(const char *name);
         void DeleteAction(const char *name);
 

@@ -4,7 +4,7 @@
 
 #include "texture.h"
 
-class Sampler : Resource<SDL_GPUSampler>  {
+class Sampler : public Resource<SDL_GPUSampler>  {
     public:
         using Resource::Resource;
         ~Sampler() override;

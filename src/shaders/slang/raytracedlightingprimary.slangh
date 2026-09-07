@@ -1,0 +1,217 @@
+#include "raytrace.slangh"
+#include "sky.slangh"
+
+// Same descriptors, camera layout and dispatch size as the supplied shader.
+// depthImage must contain THIS frame's conservative depth prepass, in ray
+// distance units. Set USE_DEPTH_PREPASS to 0 if that is not guaranteed.
+// albedoImage must persist between frames, with appropriate GPU barriers.
+// History remains screen-space: camera movement will still smear.
+// Clear albedoImage to zero on allocation (and optionally on camera cuts).
+// RGB uses the original shader's color response, with no added tone mapping.
+// Clear existing history once when switching from the tone-mapped version.
+
+#ifndef USE_DEPTH_PREPASS
+#define USE_DEPTH_PREPASS 1
+#endif
+#ifndef GI_SAMPLES
+#define GI_SAMPLES 1
+#endif
+
+static const float RT_RAY_BIAS = 0.01; // In voxel units.
+static const float RT_HISTORY_RATE = 0.02;
+
+struct CameraTransform {
+    int3 chunkPos;
+    float3 localPos;
+    float3x3 rotation;
+    float time;
+};
+
+[[vk::binding(0, 0)]] StructuredBuffer<CameraTransform> cameraTransform;
+[[vk::binding(1, 0)]] StructuredBuffer<ContreeHeader> contreeHeaders;
+[[vk::binding(2, 0)]] StructuredBuffer<ContreeData> contreeData;
+[[vk::binding(3, 0)]] StructuredBuffer<Chunk> chunks;
+[[vk::binding(4, 0)]] StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+[[vk::binding(5, 0)]] StructuredBuffer<uint32_t> chunkPositions;
+
+[[vk::binding(0, 1)]] [format("r32f")]
+RWTexture2D<float> depthImage;
+[[vk::binding(1, 1)]] [format("rgba8")]
+RWTexture2D<float4> albedoImage;
+
+uint RT_Hash(uint x) {
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    return x ^ (x >> 16);
+}
+
+float RT_Random(inout uint state) {
+    state = RT_Hash(state + 0x9e3779b9u);
+    return float(state >> 8) * (1.0 / 16777216.0);
+}
+
+TraceResult RT_Trace(Ray ray) {
+    return TraceWorld(ray, contreeHeaders, contreeData, chunks,
+                      chunkPositionsHeader, chunkPositions);
+}
+
+float3 RT_Normal(float3 n, float3 incoming) {
+    float len2 = dot(n, n);
+    return len2 > 0.0 ? n * rsqrt(len2) : -incoming;
+}
+
+float3 RT_FaceCenter(TraceResult hit, float3 normal) {
+    return float3(hit.position) + float3(0.5) + normal * 0.5;
+}
+
+uint RT_FaceSeed(TraceResult hit, float3 normal, float time) {
+    uint3 voxel = uint3(hit.position);
+    uint face = abs(normal.x) > 0.5 ? (normal.x > 0.0 ? 0u : 1u)
+              : abs(normal.y) > 0.5 ? (normal.y > 0.0 ? 2u : 3u)
+              : (normal.z > 0.0 ? 4u : 5u);
+    uint key = RT_Hash(voxel.x);
+    key = RT_Hash(key ^ voxel.y);
+    key = RT_Hash(key ^ voxel.z);
+    return RT_Hash(key ^ RT_Hash(face) ^ RT_Hash(asuint(time)));
+}
+
+float3 RT_Hemisphere(float3 normal, inout uint rng) {
+    float u = RT_Random(rng);
+    float angle = 6.28318530718 * RT_Random(rng);
+    float s, c;
+    sincos(angle, s, c);
+    float3 axis = abs(normal.y) < 0.999
+        ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 tangent = normalize(cross(axis, normal));
+    float3 bitangent = cross(normal, tangent);
+    // Already unit length in this orthonormal basis.
+    return sqrt(u) * (c * tangent + s * bitangent)
+         + sqrt(1.0 - u) * normal;
+}
+
+float3 RT_Direct(float3 position, float3 normal, float3 sunDir) {
+    float cosine = saturate(dot(normal, sunDir));
+    if (cosine <= 0.0) return float3(0);
+    Ray shadowRay;
+    shadowRay.origin = position + normal * RT_RAY_BIAS;
+    shadowRay.direction = sunDir;
+    TraceResult shadow = RT_Trace(shadowRay);
+    return shadow.hit ? float3(0) : float3(cosine);
+}
+
+// Two diffuse continuations, matching the original path depth. Primary
+// direct lighting is evaluated outside this function, once per pixel.
+float3 RT_Indirect(float3 position, float3 normal, float3 albedo,
+                  float3 sunDir, float time, inout uint rng) {
+    float3 radiance = float3(0);
+    float3 throughput = albedo;
+
+    [loop]
+    for (int bounce = 0; bounce < 2; ++bounce) {
+        if (max(throughput.x, max(throughput.y, throughput.z)) <= 0.0)
+            break;
+
+        Ray ray;
+        ray.origin = position + normal * RT_RAY_BIAS;
+        ray.direction = RT_Hemisphere(normal, rng);
+        TraceResult hit = RT_Trace(ray);
+
+        if (!hit.hit) {
+            radiance += throughput * skyColor(
+                ray.direction, ray.origin, time, sunDir);
+            break;
+        }
+
+        // At the final continuation only an environment escape contributes,
+        // as in the original two-bounce integrator. No unused material load.
+        if (bounce == 1) break;
+
+        // Evaluate bounced lighting at the voxel face center as well.
+        normal = RT_Normal(hit.normal, ray.direction);
+        position = RT_FaceCenter(hit, normal);
+        throughput *= saturate(hit.voxel.color());
+        radiance += throughput * RT_Direct(position, normal, sunDir);
+    }
+    return radiance;
+}
+
+float3 RT_Quantize(float3 color, inout uint rng) {
+    // Unbiased stochastic rounding after clamping prevents tiny history
+    // changes from rounding to zero forever. It adds at most one code step
+    // of dither; RGBA16F history would be preferable if bindings can change.
+    float3 noise;
+    noise.x = RT_Random(rng);
+    noise.y = RT_Random(rng);
+    noise.z = RT_Random(rng);
+    return floor(saturate(color) * 255.0 + noise)
+         * (1.0 / 255.0);
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void main(uint3 gl_GlobalInvocationID : SV_DispatchThreadID) {
+    uint width, height;
+    depthImage.GetDimensions(width, height);
+    if (gl_GlobalInvocationID.x >= width || gl_GlobalInvocationID.y >= height)
+        return;
+
+    int2 pos = int2(gl_GlobalInvocationID.xy);
+    CameraTransform camera = cameraTransform[0];
+    float2 ndc = GetNDC(pos, int2(width, height));
+
+    Ray ray;
+    // Preserve the supplied shader's camera-relative coordinate convention.
+    ray.origin = camera.localPos;
+    ray.direction = normalize(mul(camera.rotation, float3(ndc, 1.0)));
+
+    float startDepth = 0.0;
+#if USE_DEPTH_PREPASS
+    float prepassDepth = depthImage[pos];
+    // Reject NaN, infinity and the usual float.maxValue miss sentinel.
+    // A small backoff prevents starting exactly on the reported surface.
+    if (prepassDepth > 0.0 && prepassDepth < 1.0e20)
+        startDepth = max(0.0, prepassDepth - RT_RAY_BIAS);
+#endif
+    ray.origin += ray.direction * startDepth;
+    TraceResult hit = RT_Trace(ray);
+
+    float sunSin, sunCos;
+    sincos(camera.time * 0.01, sunSin, sunCos);
+    float3 sunDir = float3(sunSin, 1.0, sunCos) * 0.70710678118;
+    uint pixelIndex = uint(pos.x) + uint(pos.y) * width;
+    uint seed = RT_Hash(pixelIndex ^ RT_Hash(asuint(camera.time)));
+
+    float3 color;
+    if (hit.hit) {
+        float3 normal = RT_Normal(hit.normal, ray.direction);
+        float3 position = RT_FaceCenter(hit, normal);
+        // All pixels on this face trace identical lighting paths this frame.
+        // Primary visibility and depth still use the actual camera ray.
+        uint rng = RT_FaceSeed(hit, normal, camera.time);
+        float3 albedo = saturate(hit.voxel.color());
+        float3 direct = albedo * RT_Direct(position, normal, sunDir);
+        float3 indirect = float3(0);
+        [loop]
+        for (int i = 0; i < GI_SAMPLES; ++i)
+            indirect += RT_Indirect(position, normal, albedo,
+                                    sunDir, camera.time, rng);
+
+        // No constant ambient floor: enclosed, unlit faces receive zero light.
+        color = direct + indirect / float(GI_SAMPLES);
+        depthImage[pos] = max(0.0, startDepth + hit.depth);
+    } else {
+        color = skyColor(ray.direction, camera.localPos, camera.time, sunDir);
+        depthImage[pos] = float.maxValue;
+    }
+
+    float4 history = albedoImage[pos];
+    float3 accumulated = max(color, float3(0));
+    if (history.a > 0.5)
+        accumulated = lerp(history.rgb, accumulated, RT_HISTORY_RATE);
+
+    // Separate dither state from the variable-length GI random stream.
+    uint ditherRng = RT_Hash(seed ^ 0xa511e9b3u);
+    albedoImage[pos] = float4(RT_Quantize(accumulated, ditherRng), 1.0);
+}

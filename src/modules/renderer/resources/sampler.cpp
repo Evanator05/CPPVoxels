@@ -7,7 +7,7 @@ Sampler::~Sampler() {
 void Sampler::Create() {
     Destroy();
     SDL_GPUSamplerCreateInfo createInfo{};
-
+    
     gpu_resource = SDL_CreateGPUSampler(device, &createInfo);
 }
 

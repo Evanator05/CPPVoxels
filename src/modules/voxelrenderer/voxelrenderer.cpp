@@ -10,6 +10,7 @@
 #include "shaders/depth.h"
 #include "shaders/upscale.h"
 #include "shaders/primary.h"
+#include "shaders/antialias.h"
 
 #include "testgeneration.h"
 
@@ -25,6 +26,12 @@ void VoxelRenderer::Init() {
     display->format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     display->Create();
 
+    Texture *albedo = renderer.CreateResource<Texture>();
+    albedo->size = window.GetSize();
+    albedo->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    albedo->format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    albedo->Create();
+
     Texture *halfDepth = renderer.CreateResource<Texture>();
     halfDepth->size = window.GetSize() / 2;
     halfDepth->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
@@ -38,18 +45,25 @@ void VoxelRenderer::Init() {
     fullDepth->Create();
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    Generator::GenerateWorld(vm);
+    Generator::LoadVoxFile(vm, "minecraft.vox");
+    //Generator::GenerateWorld(vm);
 
     posBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
     posBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     posBuffer->SetSize(1);
     posBuffer->Create();
 
-    TypedBuffer<ContreeNode> *nodes = renderer.CreateResource<TypedBuffer<ContreeNode>>();
-    nodes->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    nodes->SetSize(vm.contree_data.size());
-    nodes->Create();
-    nodes->Upload(vm.contree_data);
+    TypedBuffer<ContreeHeader> *contree_headers = renderer.CreateResource<TypedBuffer<ContreeHeader>>();
+    contree_headers->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    contree_headers->SetSize(vm.contree_headers.size());
+    contree_headers->Create();
+    contree_headers->Upload(vm.contree_headers);
+
+    TypedBuffer<ContreeData> *contree_data = renderer.CreateResource<TypedBuffer<ContreeData>>();
+    contree_data->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    contree_data->SetSize(vm.contree_data.size());
+    contree_data->Create();
+    contree_data->Upload(vm.contree_data);
 
     TypedBuffer<Chunk> *chunks = renderer.CreateResource<TypedBuffer<Chunk>>();
     chunks->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
@@ -72,7 +86,7 @@ void VoxelRenderer::Init() {
     ComputePass *depthPass = renderer.CreateShaderPass<ComputePass>();
     depthPass->spirv = depth_spirv;
     depthPass->spirv_size = depth_spirv_sizeInBytes/4;
-    depthPass->threadcount = {16, 16, 1};
+    depthPass->threadcount = {8, 8, 1};
     depthPass->readwrite_storage_textures.push_back(halfDepth);
     depthPass->dispatchFunc = [this](const ComputePass& pass) {
         Window &w = GetModule<Window>();
@@ -83,11 +97,13 @@ void VoxelRenderer::Init() {
             1
         );
     };
-    depthPass->readonly_storage_buffers.push_back(nodes);
+    depthPass->readonly_storage_buffers.push_back(posBuffer);
+    depthPass->readonly_storage_buffers.push_back(contree_headers);
+    depthPass->readonly_storage_buffers.push_back(contree_data);
     depthPass->readonly_storage_buffers.push_back(chunks);
     depthPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     depthPass->readonly_storage_buffers.push_back(chunkPositions);
-    depthPass->readonly_storage_buffers.push_back(posBuffer);
+    
     depthPass->Create();
     
     ComputePass *depthUpscale = renderer.CreateShaderPass<ComputePass>();
@@ -107,13 +123,12 @@ void VoxelRenderer::Init() {
     };
     depthUpscale->Create();
 
-
     ComputePass *primaryPass = renderer.CreateShaderPass<ComputePass>();
     primaryPass->spirv = primary_spirv;
     primaryPass->spirv_size = primary_spirv_sizeInBytes/4;
     primaryPass->threadcount = {8, 8, 1};
     primaryPass->readwrite_storage_textures.push_back(fullDepth);
-    primaryPass->readwrite_storage_textures.push_back(display);
+    primaryPass->readwrite_storage_textures.push_back(albedo);
     primaryPass->dispatchFunc = [this](const ComputePass& pass) {
         Window &w = GetModule<Window>();
         glm::ivec2 size = w.GetSize();
@@ -123,17 +138,34 @@ void VoxelRenderer::Init() {
             1
         );
     };
-    primaryPass->readonly_storage_buffers.push_back(nodes);
+    primaryPass->readonly_storage_buffers.push_back(posBuffer);
+    primaryPass->readonly_storage_buffers.push_back(contree_headers);
+    primaryPass->readonly_storage_buffers.push_back(contree_data);
     primaryPass->readonly_storage_buffers.push_back(chunks);
     primaryPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     primaryPass->readonly_storage_buffers.push_back(chunkPositions);
-    primaryPass->readonly_storage_buffers.push_back(posBuffer);
     primaryPass->Create();
 
-
+    // ComputePass *antialiasPass = renderer.CreateShaderPass<ComputePass>();
+    // antialiasPass->spirv = antialias_spirv;
+    // antialiasPass->spirv_size = antialias_spirv_sizeInBytes/4;
+    // antialiasPass->threadcount = {16, 16, 1};
+    // antialiasPass->readwrite_storage_textures.push_back(fullDepth);
+    // antialiasPass->readwrite_storage_textures.push_back(albedo);
+    // antialiasPass->readwrite_storage_textures.push_back(display);
+    // antialiasPass->dispatchFunc = [this](const ComputePass& pass) {
+    //     Window &w = GetModule<Window>();
+    //     glm::ivec2 size = w.GetSize();
+    //     return glm::uvec3(
+    //         ((size.x)+pass.threadcount.x-1)/pass.threadcount.x,
+    //         ((size.y)+pass.threadcount.y-1)/pass.threadcount.y,
+    //         1
+    //     );
+    // };
+    // antialiasPass->Create();
 
     BlitPass *copyToSwaptex = renderer.CreateShaderPass<BlitPass>();
-    copyToSwaptex->source = display;
+    copyToSwaptex->source = albedo;
     copyToSwaptex->destination = &renderer.swapchainTexture;
 
     ImGuiPass *gui = renderer.CreateShaderPass<ImGuiPass>();
@@ -142,7 +174,10 @@ void VoxelRenderer::Init() {
     cameraTransform.localPos = {0, 128, 0};
 
     window.ResizedScreen.Bind(
-        [this, display, halfDepth, fullDepth](glm::ivec2 size) {
+        [this, albedo, display, halfDepth, fullDepth](glm::ivec2 size) {
+            albedo->size = size;
+            albedo->Create();
+
             display->size = size;
             display->Create();
 
@@ -155,8 +190,7 @@ void VoxelRenderer::Init() {
     );
 }
 
-void VoxelRenderer::Process()
-{
+void VoxelRenderer::Process() {
     Input& input = GetModule<Input>();
     input.SetMouseLock(true);
     glm::vec2 mouseMovement = input.GetMouseMovement();
