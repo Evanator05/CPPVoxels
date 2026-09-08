@@ -9,9 +9,6 @@
 - [x] Sparse voxel 64 tree chunks
 - [ ] Dirty only data uploading
 
-### Optimization
-- [ ] Optimize HDDA
-
 ### Lighting & Shading
 - [x] Per-voxel visibility hashmap for lighting
 - [x] Per-voxel lighting model
