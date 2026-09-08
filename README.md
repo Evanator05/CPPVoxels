@@ -13,18 +13,18 @@
 - [ ] Optimize HDDA
 
 ### Lighting & Shading
-- [ ] Per-voxel visibility hashmap for lighting
-- [ ] Per-voxel lighting model
+- [x] Per-voxel visibility hashmap for lighting
+- [x] Per-voxel lighting model
 - [ ] Emissive voxels
-- [ ] Global illumination
+- [x] Global illumination
 
 ### Voxel Assets
-- [ ] Voxel model support (e.g. `.vox`)
+- [x] Voxel model support (e.g. `.vox`)
 - [ ] Instanced voxel models
 - [ ] Import/export tooling
 
 ### Gameplay Features
-- [ ] CPU size voxel ray querying
+- [ ] CPU side voxel ray querying
 - [ ] Physics integration
 - [ ] Scene/World Manager
 - [ ] Character Controller
