@@ -26,11 +26,11 @@ void Input::Init() {
     CreateBinding("left", SDLK_A);
     CreateBinding("right", SDLK_D);
     CreateBinding("up", SDLK_SPACE);
-    CreateBinding("down", SDLK_LSHIFT);
+    CreateBinding("down", SDLK_LCTRL);
     CreateBinding("speedup", SDLK_EQUALS);
     CreateBinding("speeddown", SDLK_MINUS);
     CreateBinding("mouselock", SDLK_L);
-    CreateBinding("break_block", SDLK_E);
+    CreateBinding("break_block", SDLK_LSHIFT);
 }
 
 void Input::Process() {

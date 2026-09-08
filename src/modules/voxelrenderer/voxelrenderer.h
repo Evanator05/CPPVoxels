@@ -22,7 +22,15 @@ class VoxelRenderer : public EngineModule {
             alignas(16) glm::vec3 rotation0;
             alignas(16) glm::vec3 rotation1;
             alignas(16) glm::vec3 rotation2;
-            alignas(16) float time;
+            alignas(16) float time = 0;
+            int frame = 0;
+        };
+
+        struct alignas(16) FaceEntry {
+            glm::vec<3, int32_t, glm::packed_highp> voxelPosition;
+            uint32_t face;
+            glm::vec<3, float, glm::packed_highp> indirectLighting;
+            uint32_t frame;
         };
 
     private:

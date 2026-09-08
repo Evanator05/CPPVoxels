@@ -1,4 +1,5 @@
 #include "raytrace.slangh"
+#include "facehashmap.slangh"
 #include "sky.slangh"
 
 struct CameraTransform {
@@ -6,6 +7,7 @@ struct CameraTransform {
     float3 localPos;
     float3x3 rotation;
     float time;
+    int frame;
 };
 
 [[vk::binding(0, 0)]]
@@ -26,6 +28,9 @@ StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
 [[vk::binding(5, 0)]]
 StructuredBuffer<uint32_t> chunkPositions;
 
+[[vk::binding(3, 1)]]
+RWStructuredBuffer<FaceEntry> faceHashmap;
+
 [[vk::binding(0, 1)]]
 [format("r32f")]
 RWTexture2D<float> depthImage;
@@ -33,6 +38,10 @@ RWTexture2D<float> depthImage;
 [[vk::binding(1, 1)]]
 [format("rgba8")]
 RWTexture2D<float4> albedoImage;
+
+[[vk::binding(2, 1)]]
+[format("r32ui")]
+RWTexture2D<uint> probeIndexImage;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -59,25 +68,25 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
 
     float3 lightDir = normalize(float3(sin(camera.time / 100), 1, cos(camera.time / 100)));
 
+    FaceKey key;
+    key.position = int3(0);
+    key.face = INVALID_SLOT;
+    key.swap = IsEven(camera.frame);
+    key.frame = camera.frame;
+    uint probeIndex = INVALID_SLOT;
     if (result.hit) {
+        key.position = result.position;
+        key.face = GetFaceIndex(result.normal);
+
+        FaceInsertResult insertResult = PlaceEntry(key, faceHashmap);
+        probeIndex = insertResult.slotIndex;
 
         color = result.voxel.color();
-
-        Ray lightRay;
-        lightRay.origin = result.position + float3(0.5);
-        lightRay.direction = lightDir;
-        lightRay.origin += result.normal * 0.55;
-
-        TraceResult lightRayResult = TraceWorld(lightRay, contreeHeaders, contreeData, chunks, chunkPositionsHeader, chunkPositions);
-        if (lightRayResult.hit) {
-            color *= 0.7;
-        }
-        // color *= 0.8 + 0.2 * max(dot(lightDir, result.normal), 0.0);
     } else {
         color = skyColor(ray.direction, camera.localPos, camera.time, lightDir);
     }
 
-    // color = abs(result.normal);
     depthImage[pos] = max(result.depth + depthImage[pos], 0);
     albedoImage[pos] = float4(color, 1);
+    probeIndexImage[pos] = probeIndex;
 }

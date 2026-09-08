@@ -11,7 +11,6 @@ void Buffer::Create() {
     bci.size = static_cast<Uint32>(size);
     bci.props = 0;
     bci.usage = usage;
-
     gpu_resource = SDL_CreateGPUBuffer(device, &bci);
 }
 

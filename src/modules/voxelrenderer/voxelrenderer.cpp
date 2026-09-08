@@ -10,8 +10,9 @@
 #include "shaders/depth.h"
 #include "shaders/upscale.h"
 #include "shaders/primary.h"
-#include "shaders/antialias.h"
-
+#include "shaders/probelighting.h"
+#include "shaders/probecombine.h"
+#include "shaders/denoise.h"
 #include "testgeneration.h"
 
 void VoxelRenderer::Init() {
@@ -32,6 +33,12 @@ void VoxelRenderer::Init() {
     albedo->format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     albedo->Create();
 
+    Texture *probeIndex = renderer.CreateResource<Texture>();
+    probeIndex->size = window.GetSize();
+    probeIndex->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    probeIndex->format = SDL_GPU_TEXTUREFORMAT_R32_UINT;
+    probeIndex->Create();
+
     Texture *halfDepth = renderer.CreateResource<Texture>();
     halfDepth->size = window.GetSize() / 2;
     halfDepth->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
@@ -45,8 +52,8 @@ void VoxelRenderer::Init() {
     fullDepth->Create();
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    Generator::LoadVoxFile(vm, "minecraft.vox");
-    //Generator::GenerateWorld(vm);
+    Generator::LoadVoxFile(vm, "castle.vox");
+    //Generator::GenerateCaves(vm);
 
     posBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
     posBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
@@ -82,6 +89,16 @@ void VoxelRenderer::Init() {
     chunkPositions->SetSize(vm.chunk_occupancy.get_size());
     chunkPositions->Create();
     chunkPositions->Upload((uint32_t*)vm.chunk_occupancy.chunks, vm.chunk_occupancy.get_size());
+
+    TypedBuffer<FaceEntry> *faceEntries = renderer.CreateResource<TypedBuffer<FaceEntry>>();
+    faceEntries->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    faceEntries->SetSize(window.GetSize().x*window.GetSize().y*4);
+    faceEntries->Create();
+
+    TypedBuffer<FaceEntry> *smoothFaces = renderer.CreateResource<TypedBuffer<FaceEntry>>();
+    smoothFaces->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    smoothFaces->SetSize(window.GetSize().x*window.GetSize().y*4);
+    smoothFaces->Create();
 
     ComputePass *depthPass = renderer.CreateShaderPass<ComputePass>();
     depthPass->spirv = depth_spirv;
@@ -129,6 +146,7 @@ void VoxelRenderer::Init() {
     primaryPass->threadcount = {8, 8, 1};
     primaryPass->readwrite_storage_textures.push_back(fullDepth);
     primaryPass->readwrite_storage_textures.push_back(albedo);
+    primaryPass->readwrite_storage_textures.push_back(probeIndex);
     primaryPass->dispatchFunc = [this](const ComputePass& pass) {
         Window &w = GetModule<Window>();
         glm::ivec2 size = w.GetSize();
@@ -144,39 +162,87 @@ void VoxelRenderer::Init() {
     primaryPass->readonly_storage_buffers.push_back(chunks);
     primaryPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     primaryPass->readonly_storage_buffers.push_back(chunkPositions);
+    primaryPass->readwrite_storage_buffers.push_back(faceEntries);
     primaryPass->Create();
 
-    // ComputePass *antialiasPass = renderer.CreateShaderPass<ComputePass>();
-    // antialiasPass->spirv = antialias_spirv;
-    // antialiasPass->spirv_size = antialias_spirv_sizeInBytes/4;
-    // antialiasPass->threadcount = {16, 16, 1};
-    // antialiasPass->readwrite_storage_textures.push_back(fullDepth);
-    // antialiasPass->readwrite_storage_textures.push_back(albedo);
-    // antialiasPass->readwrite_storage_textures.push_back(display);
-    // antialiasPass->dispatchFunc = [this](const ComputePass& pass) {
-    //     Window &w = GetModule<Window>();
-    //     glm::ivec2 size = w.GetSize();
-    //     return glm::uvec3(
-    //         ((size.x)+pass.threadcount.x-1)/pass.threadcount.x,
-    //         ((size.y)+pass.threadcount.y-1)/pass.threadcount.y,
-    //         1
-    //     );
-    // };
-    // antialiasPass->Create();
+    ComputePass* probeLightingPass = renderer.CreateShaderPass<ComputePass>();
+    probeLightingPass->spirv = probelighting_spirv;
+    probeLightingPass->spirv_size = probelighting_spirv_sizeInBytes / 4;
+    probeLightingPass->threadcount = {64, 1, 1};
+    probeLightingPass->readonly_storage_buffers.push_back(posBuffer);
+    probeLightingPass->readonly_storage_buffers.push_back(contree_headers);
+    probeLightingPass->readonly_storage_buffers.push_back(contree_data);
+    probeLightingPass->readonly_storage_buffers.push_back(chunks);
+    probeLightingPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
+    probeLightingPass->readonly_storage_buffers.push_back(chunkPositions);
+    probeLightingPass->readwrite_storage_buffers.push_back(faceEntries);
+    probeLightingPass->dispatchFunc =
+        [faceEntries](const ComputePass&) {
+            const size_t threads = 64;
+            const size_t groupsPerRow = 65535;
+            const size_t groupCount = (faceEntries->GetSize() + threads - 1) / threads;
+            const size_t groupsX = groupCount < groupsPerRow ? groupCount : groupsPerRow;
+            const size_t groupsY = (groupCount + groupsPerRow - 1) / groupsPerRow;
+            return glm::uvec3(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), 1);
+        };
+    probeLightingPass->Create();
+
+    ComputePass* denoisePass = renderer.CreateShaderPass<ComputePass>();
+    denoisePass->spirv = denoise_spirv;
+    denoisePass->spirv_size = denoise_spirv_sizeInBytes / 4;
+    denoisePass->threadcount = {64, 1, 1};
+    denoisePass->readonly_storage_buffers.push_back(posBuffer);
+    denoisePass->readonly_storage_buffers.push_back(contree_headers);
+    denoisePass->readonly_storage_buffers.push_back(contree_data);
+    denoisePass->readonly_storage_buffers.push_back(chunks);
+    denoisePass->readonly_storage_buffers.push_back(chunkPositionsHeader);
+    denoisePass->readonly_storage_buffers.push_back(chunkPositions);
+    denoisePass->readwrite_storage_buffers.push_back(faceEntries);
+    denoisePass->readwrite_storage_buffers.push_back(smoothFaces);
+    denoisePass->dispatchFunc =
+        [faceEntries](const ComputePass&) {
+            const size_t threads = 64;
+            const size_t groupsPerRow = 65535;
+            const size_t groupCount = (faceEntries->GetSize() + threads - 1) / threads;
+            const size_t groupsX = groupCount < groupsPerRow ? groupCount : groupsPerRow;
+            const size_t groupsY = (groupCount + groupsPerRow - 1) / groupsPerRow;
+            return glm::uvec3(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), 1);
+        };
+    denoisePass->Create();
+
+    ComputePass* combinePass = renderer.CreateShaderPass<ComputePass>();
+    combinePass->spirv = probecombine_spirv;
+    combinePass->spirv_size = probecombine_spirv_sizeInBytes / 4;
+    combinePass->threadcount = {8, 8, 1};
+    combinePass->readonly_storage_textures.push_back(albedo);
+    combinePass->readonly_storage_textures.push_back(probeIndex);
+    combinePass->readonly_storage_buffers.push_back(smoothFaces);
+    combinePass->readwrite_storage_textures.push_back(display);
+    combinePass->dispatchFunc = [display](const ComputePass&) {
+        return glm::uvec3(
+            (display->size.x + 7) / 8,
+            (display->size.y + 7) / 8,
+            1
+        );
+    };
+    combinePass->Create();
 
     BlitPass *copyToSwaptex = renderer.CreateShaderPass<BlitPass>();
-    copyToSwaptex->source = albedo;
+    copyToSwaptex->source = display;
     copyToSwaptex->destination = &renderer.swapchainTexture;
 
     ImGuiPass *gui = renderer.CreateShaderPass<ImGuiPass>();
     gui->destination = &renderer.swapchainTexture;
 
-    cameraTransform.localPos = {0, 128, 0};
+    cameraTransform.localPos = {0, 150, 0};
 
     window.ResizedScreen.Bind(
-        [this, albedo, display, halfDepth, fullDepth](glm::ivec2 size) {
+        [this, albedo, display, halfDepth, fullDepth, faceEntries, probeIndex, smoothFaces](glm::ivec2 size) {
             albedo->size = size;
             albedo->Create();
+
+            probeIndex->size = size;
+            probeIndex->Create();
 
             display->size = size;
             display->Create();
@@ -186,6 +252,11 @@ void VoxelRenderer::Init() {
 
             fullDepth->size = size;
             fullDepth->Create();
+
+            faceEntries->SetSize(size.x*size.y*4);
+            faceEntries->Create();
+            smoothFaces->SetSize(size.x*size.y*4);
+            smoothFaces->Create();
         }
     );
 }
@@ -261,7 +332,7 @@ cameraTransform.rotation2 = forward;
         forward * movement.z;
 
     cameraTransform.localPos += worldMovement * moveSpeed * deltaTime;
-
+    cameraTransform.frame++;
     // ------------------------------------------------------------
     // Upload
     // ------------------------------------------------------------

@@ -1,0 +1,281 @@
+#ifndef VOXEL_FACE_HASHMAP_SLANGH
+#define VOXEL_FACE_HASHMAP_SLANGH
+
+#ifndef FACE_MAP_MAX_PROBES
+#define FACE_MAP_MAX_PROBES 128u
+#endif
+
+static const float3 faceNormals[6] = {
+    float3( 1, 0, 0), float3(-1, 0, 0),
+    float3(0,  1, 0), float3(0, -1, 0),
+    float3(0, 0,  1), float3(0, 0, -1)
+};
+
+static const uint INVALID_SLOT = 0xFFFFFFFFu;
+static const uint BUSY_SLOT = 0xFFFFFFFEu;
+static const int FACE_EMPTY_COORD = (-2147483647 - 1);
+static const uint FACE_CLAIM_BIT  = 0x80000000u;
+static const uint FACE_CLAIM_MASK = 0x7FFFFFFFu;
+
+struct FaceKey {
+    int3 position;
+    uint face;
+    bool swap;
+    uint frame;
+};
+
+struct FaceEntry {
+    int3 position;
+    uint face;
+    float3 lighting;
+    uint frame;
+};
+
+struct FaceReadResult {
+    uint slotIndex;
+    FaceEntry entry;
+};
+
+struct FaceInsertResult {
+    uint slotIndex;
+    bool inserted;
+};
+
+uint Hash(int3 voxelPosition, uint face) {
+    uint3 p = asuint(voxelPosition);
+    uint h =
+        p.x * 0x8DA6B343u ^
+        p.y * 0xD8163841u ^
+        p.z * 0xCB1AB31Fu ^
+        face * 0x165667B1u;
+    h ^= h >> 16u;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15u;
+    return h;
+}
+
+uint FaceClaimTagFromHash(uint hash) {
+    uint tag = FACE_CLAIM_BIT | (hash & FACE_CLAIM_MASK);
+    if (tag == INVALID_SLOT || tag == BUSY_SLOT)
+        tag ^= 0x40000000u;
+    return tag;
+}
+
+uint FaceClaimTag(FaceKey key) {
+    return FaceClaimTagFromHash(Hash(key.position, key.face));
+}
+
+
+bool IsFaceClaimTag(uint face) {
+    return
+        (face & FACE_CLAIM_BIT) != 0u &&
+        face != INVALID_SLOT &&
+        face != BUSY_SLOT;
+}
+
+uint FaceMapBase(bool swap, uint capacity) {
+    return swap ? capacity : 0u;
+}
+
+uint GetCapacity(RWStructuredBuffer<FaceEntry> entries) {
+    uint count, stride;
+    entries.GetDimensions(count, stride);
+    return (count & 1u) != 0u ? 0u : count / 2u;
+}
+
+bool GetSwap(uint index, RWStructuredBuffer<FaceEntry> entries) {
+    return index >= GetCapacity(entries);
+}
+
+bool IsEven(uint index) {
+    return (index & 1u) == 0u;
+}
+
+FaceEntry EmptyFaceEntry() {
+    FaceEntry entry;
+    entry.position = int3(0);
+    entry.face = INVALID_SLOT;
+    entry.lighting = float3(0);
+    entry.frame = INVALID_SLOT;
+    return entry;
+}
+
+uint GetFaceIndex(float3 normal) {
+    float3 a = abs(normal);
+    if (!any(a > float3(0)))
+        return INVALID_SLOT;
+    if (a.x >= a.y && a.x >= a.z)
+        return normal.x > 0.0 ? 0u : 1u;
+    if (a.y >= a.z)
+        return normal.y > 0.0 ? 2u : 3u;
+    return normal.z > 0.0 ? 4u : 5u;
+}
+
+uint AtomicReadFace(uint slot, RWStructuredBuffer<FaceEntry> entries) {
+    uint observed;
+    InterlockedCompareExchange(entries[slot].face, INVALID_SLOT, INVALID_SLOT, observed);
+    return observed;
+}
+
+uint AtomicReadFrame(uint slot, RWStructuredBuffer<FaceEntry> entries) {
+    uint observed;
+    InterlockedCompareExchange(entries[slot].frame, INVALID_SLOT, INVALID_SLOT, observed);
+    return observed;
+}
+
+FaceReadResult ReadKey(FaceKey key, RWStructuredBuffer<FaceEntry> entries) {
+    FaceReadResult result;
+    result.slotIndex = INVALID_SLOT;
+    result.entry = EmptyFaceEntry();
+
+    uint capacity = GetCapacity(entries);
+
+    if (capacity == 0u || key.face >= 6u || any(key.position == int3(FACE_EMPTY_COORD)))
+        return result;
+
+    uint base = FaceMapBase(key.swap, capacity);
+    uint localSlot = Hash(key.position, key.face) % capacity;
+    uint probeLimit = min(uint(FACE_MAP_MAX_PROBES), capacity);
+
+    [loop]
+    for (uint probe = 0u; probe < probeLimit; ++probe) {
+        uint slot = base + localSlot;
+
+        localSlot++;
+        if (localSlot == capacity)
+            localSlot = 0u;
+
+        FaceEntry entry = entries[slot];
+
+        if (entry.face == key.face && all(entry.position == key.position)) {
+            result.slotIndex = slot;
+            result.entry = entry;
+            return result;
+        }
+    }
+    return result;
+}
+
+FaceInsertResult PlaceEntry(FaceKey key, RWStructuredBuffer<FaceEntry> entries) {
+    FaceInsertResult result;
+
+    result.slotIndex = INVALID_SLOT;
+    result.inserted = false;
+
+    uint capacity = GetCapacity(entries);
+
+    if (capacity == 0u || key.face >= 6u || key.frame == INVALID_SLOT || key.frame == BUSY_SLOT || any(key.position == int3(FACE_EMPTY_COORD)))
+        return result;
+
+    uint base = FaceMapBase(key.swap, capacity);
+    uint keyHash = Hash(key.position, key.face);
+    uint desiredClaim = FaceClaimTagFromHash(keyHash);
+    uint localSlot = keyHash % capacity;
+    uint probeLimit = min(uint(FACE_MAP_MAX_PROBES), capacity);
+
+    [loop]
+    for (uint probe = 0u; probe < probeLimit; ++probe) {
+        uint slot = base + localSlot;
+
+        localSlot++;
+
+        if (localSlot == capacity)
+            localSlot = 0u;
+
+        uint observedFace = AtomicReadFace(slot, entries);
+
+        if (IsFaceClaimTag(observedFace)) {
+            if (observedFace == desiredClaim) {
+                result.slotIndex = slot;
+                result.inserted = false;
+                return result;
+            }
+            continue;
+        }
+
+        uint observedFrame = AtomicReadFrame(slot, entries);
+
+        if (observedFrame == key.frame) {
+            if (observedFace == key.face && all(entries[slot].position == key.position)) {
+                result.slotIndex = slot;
+                result.inserted = false;
+
+                return result;
+            }
+            continue;
+        }
+        uint previousFace;
+        InterlockedCompareExchange(
+            entries[slot].face,
+            observedFace,
+            desiredClaim,
+            previousFace);
+
+        if (previousFace != observedFace) {
+            if (previousFace == desiredClaim) {
+                result.slotIndex = slot;
+                result.inserted = false;
+                return result;
+            }
+            continue;
+        }
+
+        entries[slot].position = key.position;
+        entries[slot].lighting = float3(0);
+
+        DeviceMemoryBarrier();
+        InterlockedExchange(entries[slot].frame, key.frame);
+
+        DeviceMemoryBarrier();
+        InterlockedExchange(entries[slot].face, key.face);
+
+        result.slotIndex = slot;
+        result.inserted = true;
+
+        return result;
+    }
+
+    return result;
+}
+
+void ClearSlot(uint localSlot, bool swap, RWStructuredBuffer<FaceEntry> entries) {
+    uint capacity = GetCapacity(entries);
+    if (localSlot >= capacity)
+        return;
+    uint slot = FaceMapBase(swap, capacity) + localSlot;
+
+    entries[slot].position = int3(FACE_EMPTY_COORD);
+    entries[slot].lighting = float3(0);
+    entries[slot].frame = INVALID_SLOT;
+    entries[slot].face = INVALID_SLOT;
+}
+
+void ClearAllSlot(uint absoluteSlot,RWStructuredBuffer<FaceEntry> entries) {
+    uint count, stride;
+
+    entries.GetDimensions(count, stride);
+
+    if (absoluteSlot >= count)
+        return;
+
+    entries[absoluteSlot].position = int3(FACE_EMPTY_COORD);
+    entries[absoluteSlot].lighting = float3(0);
+    entries[absoluteSlot].frame = INVALID_SLOT;
+    entries[absoluteSlot].face = INVALID_SLOT;
+}
+
+void SetLighting(uint absoluteSlot, float3 lighting, RWStructuredBuffer<FaceEntry> entries) {
+    if (absoluteSlot == INVALID_SLOT)
+        return;
+
+    entries[absoluteSlot].lighting = lighting;
+}
+
+
+float3 GetLighting(uint absoluteSlot, RWStructuredBuffer<FaceEntry> entries) {
+    if (absoluteSlot == INVALID_SLOT)
+        return float3(0);
+    return entries[absoluteSlot].lighting;
+}
+
+#endif

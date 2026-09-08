@@ -5,6 +5,7 @@ struct CameraTransform {
     float3 localPos;
     float3x3 rotation;
     float time;
+    int frame;
 };
 
 [[vk::binding(0, 0)]]
