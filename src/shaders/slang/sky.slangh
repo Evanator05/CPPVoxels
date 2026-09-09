@@ -110,7 +110,7 @@ float3 skyColor(float3 dir, float3 pos, float time, float3 sundir) {
     );
 
     float3 cloudColor = float3(1.0, 1.0, 1.0);
-
+    
     return lerp(
         sky,
         cloudColor,

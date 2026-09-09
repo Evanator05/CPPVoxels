@@ -1,16 +1,15 @@
 #include "facehashmap.slangh"
 
 #define PROBE_THREADS 64
-#define PROBE_GROUPS_PER_ROW 65535u
 
 static const float CENTER_WEIGHT = 2.0;
-static const float CARDINAL_WEIGHT = 1.0;
-static const float CROSS_FACE_WEIGHT = 0.8;
-static const float EDGE_REJECTION = 1.25;
-static const float MIN_EDGE_WEIGHT = 0.50;
+static const float CARDINAL_WEIGHT = 2.0;
+static const float CROSS_FACE_WEIGHT = 0.4;
 
-struct CameraTransform
-{
+static const float EDGE_REJECTION = 1.25;
+static const float MIN_EDGE_WEIGHT = 0.2;
+
+struct CameraTransform {
     int3 chunkPos;
     float3 localPos;
     float3x3 rotation;
@@ -25,6 +24,9 @@ StructuredBuffer<CameraTransform> cameraTransform;
 RWStructuredBuffer<FaceEntry> faceHashmap;
 
 [[vk::binding(1, 1)]]
+RWStructuredBuffer<uint> placedProbes;
+
+[[vk::binding(2, 1)]]
 RWStructuredBuffer<FaceEntry> smoothFaceHashmap;
 
 int3 SmoothPlaneOffset(uint face, int a, int b) {
@@ -33,93 +35,82 @@ int3 SmoothPlaneOffset(uint face, int a, int b) {
     return int3(a, b, 0);
 }
 
-uint SmoothOppositeFace(uint face) {
-    return face ^ 1u;
+uint SmoothSelectCrossFace(uint centerFace, uint choice) {
+    choice &= 3u;
+    if (centerFace < 2u)
+        return choice + 2u;
+    if (centerFace < 4u) 
+        return choice < 2u ? choice : choice + 2u;
+    return choice;
 }
 
-bool SmoothValidProbe(FaceReadResult result, uint expectedFrame, uint expectedFace) {
-    if (result.slotIndex == INVALID_SLOT) return false;
-    if (result.entry.frame != expectedFrame) return false;
-    if (result.entry.face != expectedFace) return false;
-    if (!all(isfinite(result.entry.lighting))) return false;
-    if (any(result.entry.lighting < float3(0.0))) return false;
-    return true;
+float SmoothEdgeWeight( float3 center, float3 sample) {
+    float centerPeak = max(center.x, max(center.y, center.z));
+    float samplePeak = max(sample.x, max(sample.y, sample.z));
+    float scale = 1.0 + max(centerPeak, samplePeak);
+    float invScale = rcp(scale);
+    float3 delta = (sample - center) * invScale;
+    float difference = dot(delta, delta) * (1.0 / 3.0);
+    float weight = rcp(1.0 + difference * EDGE_REJECTION);
+    return max(weight, MIN_EDGE_WEIGHT);
 }
 
-FaceReadResult SmoothReadRaw(int3 position, uint face, bool swap, uint frame) {
+bool SmoothTryReadLighting(int3 position, uint face, bool swap, uint frame, out float3 lighting) {
     FaceKey key;
     key.position = position;
     key.face = face;
     key.swap = swap;
     key.frame = frame;
-    return ReadKey(key, faceHashmap);
-}
 
-float SmoothEdgeWeight(float3 center, float3 sample) {
-    if (EDGE_REJECTION <= 0.0)
-        return 1.0;
-    float3 compressedCenter = center / (float3(1.0) + center);
-    float3 compressedSample = sample / (float3(1.0) + sample);
-    float3 delta = compressedSample - compressedCenter;
-    float difference = dot(delta, delta) * (1.0 / 3.0);
-    float weight = 1.0 / (1.0 + difference * EDGE_REJECTION);
-    return max(weight, MIN_EDGE_WEIGHT);
+    FaceReadResult result = ReadKey(key, faceHashmap);
+
+    if (result.slotIndex == INVALID_SLOT)
+        return false;
+    if (result.entry.frame != frame)
+        return false;
+
+    if (result.entry.face != face)
+        return false;
+
+    lighting = max(result.entry.lighting, float3(0.0));
+    return true;
 }
 
 void SmoothAddProbe(int3 position, uint face, bool swap, uint frame, float baseWeight, float3 centerLighting, inout float3 lightingSum, inout float weightSum) {
-    FaceReadResult result = SmoothReadRaw(position, face, swap, frame);
+    float3 lighting;
 
-    if (!SmoothValidProbe(result, frame, face))
+    if (!SmoothTryReadLighting(position, face, swap, frame, lighting))
         return;
     
-    float3 lighting = max(result.entry.lighting, float3(0.0));
     float weight = baseWeight * SmoothEdgeWeight(centerLighting, lighting);
     lightingSum += lighting * weight;
     weightSum += weight;
 }
 
-void SmoothAddCrossFaces(int3 position, uint centerFace, bool swap, uint frame, float3 centerLighting, inout float3 lightingSum, inout float weightSum) {
-    uint oppositeFace = SmoothOppositeFace(centerFace);
-
-    [unroll]
-    for (uint sampleFace = 0u; sampleFace < 6u; ++sampleFace) {
-        if (sampleFace == centerFace)
-            continue;
-        if (sampleFace == oppositeFace)
-            continue;
-        SmoothAddProbe(position, sampleFace, swap, frame, CROSS_FACE_WEIGHT, centerLighting, lightingSum, weightSum);
-    }
-}
-
 [shader("compute")]
 [numthreads(PROBE_THREADS, 1, 1)]
-void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID) {
-    CameraTransform camera = cameraTransform[0];
+void main(uint3 dispatchThreadID : SV_DispatchThreadID) {
+    uint placedIndex = dispatchThreadID.x;
+    uint placedBufferCount;
+    uint placedStride;
+    placedProbes.GetDimensions(placedBufferCount, placedStride);
 
-    uint currentFrame = uint(camera.frame);
-    bool currentSwap = IsEven(camera.frame);
-    uint numEntries;
-    uint stride;
-
-    faceHashmap.GetDimensions(numEntries, stride);
-
-    if ((numEntries & 1u) != 0u)
+    if (placedBufferCount <= 1u)
         return;
 
-    uint capacity = numEntries / 2u;
+    uint placedCount = min(placedProbes[0], placedBufferCount - 1u);
 
-    uint groupIndex = groupID.x + groupID.y * PROBE_GROUPS_PER_ROW;
-    uint localSlot = groupIndex * uint(PROBE_THREADS) + groupThreadID.x;
-
-    if (localSlot >= capacity)
+    if (placedIndex >= placedCount)
         return;
 
-    uint absoluteSlot = localSlot;
+    uint absoluteSlot = placedProbes[placedIndex + 1u];
 
-    if (currentSwap) {
-        absoluteSlot += capacity;
-    }
+    if (absoluteSlot == INVALID_SLOT)
+        return;
 
+    int frameValue = cameraTransform[0].frame;
+    uint currentFrame = uint(frameValue);
+    bool currentSwap = IsEven(frameValue);
     FaceEntry currentEntry = faceHashmap[absoluteSlot];
 
     if (currentEntry.frame != currentFrame)
@@ -130,33 +121,26 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID) {
     if (face >= 6u)
         return;
 
-
-    if (!all(isfinite(currentEntry.lighting)))
-        return;
-
-
-    if (any(currentEntry.lighting < float3(0.0)))
-        return;
-
     int3 position = currentEntry.position;
-
     float3 centerLighting = max(currentEntry.lighting, float3(0.0));
     float3 lightingSum = centerLighting * CENTER_WEIGHT;
 
     float weightSum = CENTER_WEIGHT;
-    SmoothAddProbe(position + SmoothPlaneOffset(face, -1, 0), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
-    SmoothAddProbe(position + SmoothPlaneOffset(face, 1, 0), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
-    SmoothAddProbe(position + SmoothPlaneOffset(face, 0, -1), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
-    SmoothAddProbe(position + SmoothPlaneOffset(face, 0, 1), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
-    SmoothAddCrossFaces(position, face, currentSwap, currentFrame, centerLighting, lightingSum, weightSum);
+    uint sampleHash = Hash(position, face);
+    int directionA = (sampleHash & 1u) ? 1 : -1;
+    SmoothAddProbe(position + SmoothPlaneOffset(face, directionA, 0), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
 
-    float3 finalLighting = lightingSum / max(weightSum, 1.0e-8);
+    int directionB = (sampleHash & 2u) ? 1 : -1;
+    SmoothAddProbe(position + SmoothPlaneOffset(face, 0, directionB), face, currentSwap, currentFrame, CARDINAL_WEIGHT, centerLighting, lightingSum, weightSum);
+    uint crossChoice = (sampleHash >> 2u) & 3u;
+    uint crossFace = SmoothSelectCrossFace(face, crossChoice);
+    SmoothAddProbe(position, crossFace, currentSwap, currentFrame, CROSS_FACE_WEIGHT, centerLighting, lightingSum, weightSum);
 
-    if (!all(isfinite(finalLighting)))
-        return;
+    float invWeight = rcp(max(weightSum, 1.0e-8));
 
-    finalLighting = max( finalLighting, float3(0.0));
-    currentEntry.lighting = finalLighting;
+    float3 finalLighting = lightingSum * invWeight;
+
+    currentEntry.lighting = max(finalLighting, float3(0.0));
 
     smoothFaceHashmap[absoluteSlot] = currentEntry;
 }

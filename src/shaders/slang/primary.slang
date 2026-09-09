@@ -29,7 +29,10 @@ StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
 StructuredBuffer<uint32_t> chunkPositions;
 
 [[vk::binding(3, 1)]]
-RWStructuredBuffer<FaceEntry> faceHashmap;
+RWStructuredBuffer<FaceEntry> probeHashmap;
+
+[[vk::binding(4, 1)]]
+RWStructuredBuffer<uint> placedProbes;
 
 [[vk::binding(0, 1)]]
 [format("r32f")]
@@ -78,7 +81,7 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
         key.position = result.position;
         key.face = GetFaceIndex(result.normal);
 
-        FaceInsertResult insertResult = PlaceEntry(key, faceHashmap);
+        FaceInsertResult insertResult = PlaceEntry(key, probeHashmap, placedProbes);
         probeIndex = insertResult.slotIndex;
 
         color = result.voxel.color();

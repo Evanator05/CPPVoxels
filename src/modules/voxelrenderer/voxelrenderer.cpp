@@ -9,7 +9,9 @@
 
 #include "shaders/depth.h"
 #include "shaders/upscale.h"
+#include "shaders/clearprobes.h"
 #include "shaders/primary.h"
+#include "shaders/setprobeindirectcount.h"
 #include "shaders/probelighting.h"
 #include "shaders/probecombine.h"
 #include "shaders/denoise.h"
@@ -52,7 +54,7 @@ void VoxelRenderer::Init() {
     fullDepth->Create();
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    Generator::LoadVoxFile(vm, "castle.vox");
+    Generator::LoadVoxFile(vm, "minecraft.vox");
     //Generator::GenerateCaves(vm);
 
     posBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
@@ -95,10 +97,20 @@ void VoxelRenderer::Init() {
     faceEntries->SetSize(window.GetSize().x*window.GetSize().y*4);
     faceEntries->Create();
 
+    TypedBuffer<uint32_t> *placedProbes = renderer.CreateResource<TypedBuffer<uint32_t>>();
+    placedProbes->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    placedProbes->SetSize(window.GetSize().x*window.GetSize().y*4);
+    placedProbes->Create();
+
     TypedBuffer<FaceEntry> *smoothFaces = renderer.CreateResource<TypedBuffer<FaceEntry>>();
     smoothFaces->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
     smoothFaces->SetSize(window.GetSize().x*window.GetSize().y*4);
     smoothFaces->Create();
+
+    TypedBuffer<uint32_t> *placeProbesIndirectBuffer = renderer.CreateResource<TypedBuffer<uint32_t>>();
+    placeProbesIndirectBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_BUFFERUSAGE_INDIRECT;
+    placeProbesIndirectBuffer->SetSize(3);
+    placeProbesIndirectBuffer->Create();
 
     ComputePass *depthPass = renderer.CreateShaderPass<ComputePass>();
     depthPass->spirv = depth_spirv;
@@ -120,7 +132,6 @@ void VoxelRenderer::Init() {
     depthPass->readonly_storage_buffers.push_back(chunks);
     depthPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     depthPass->readonly_storage_buffers.push_back(chunkPositions);
-    
     depthPass->Create();
     
     ComputePass *depthUpscale = renderer.CreateShaderPass<ComputePass>();
@@ -139,6 +150,16 @@ void VoxelRenderer::Init() {
         );
     };
     depthUpscale->Create();
+
+    ComputePass *clearProbesPass = renderer.CreateShaderPass<ComputePass>();
+    clearProbesPass->spirv = clearprobes_spirv;
+    clearProbesPass->spirv_size = clearprobes_spirv_sizeInBytes/4;
+    clearProbesPass->threadcount = {1, 1, 1};
+    clearProbesPass->readwrite_storage_buffers.push_back(placedProbes);
+    clearProbesPass->dispatchFunc = [](const ComputePass& pass) {
+        return glm::uvec3(1, 1, 1);
+    };
+    clearProbesPass->Create();
 
     ComputePass *primaryPass = renderer.CreateShaderPass<ComputePass>();
     primaryPass->spirv = primary_spirv;
@@ -163,7 +184,19 @@ void VoxelRenderer::Init() {
     primaryPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     primaryPass->readonly_storage_buffers.push_back(chunkPositions);
     primaryPass->readwrite_storage_buffers.push_back(faceEntries);
+    primaryPass->readwrite_storage_buffers.push_back(placedProbes);
     primaryPass->Create();
+
+    ComputePass *setIndirectPass = renderer.CreateShaderPass<ComputePass>();
+    setIndirectPass->spirv = setprobeindirectcount_spirv;
+    setIndirectPass->spirv_size = setprobeindirectcount_spirv_sizeInBytes/4;
+    setIndirectPass->threadcount = {1, 1, 1};
+    setIndirectPass->readwrite_storage_buffers.push_back(placedProbes);
+    setIndirectPass->readwrite_storage_buffers.push_back(placeProbesIndirectBuffer);
+    setIndirectPass->dispatchFunc = [](const ComputePass& pass) {
+        return glm::uvec3(1, 1, 1);
+    };
+    setIndirectPass->Create();
 
     ComputePass* probeLightingPass = renderer.CreateShaderPass<ComputePass>();
     probeLightingPass->spirv = probelighting_spirv;
@@ -176,39 +209,21 @@ void VoxelRenderer::Init() {
     probeLightingPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     probeLightingPass->readonly_storage_buffers.push_back(chunkPositions);
     probeLightingPass->readwrite_storage_buffers.push_back(faceEntries);
-    probeLightingPass->dispatchFunc =
-        [faceEntries](const ComputePass&) {
-            const size_t threads = 64;
-            const size_t groupsPerRow = 65535;
-            const size_t groupCount = (faceEntries->GetSize() + threads - 1) / threads;
-            const size_t groupsX = groupCount < groupsPerRow ? groupCount : groupsPerRow;
-            const size_t groupsY = (groupCount + groupsPerRow - 1) / groupsPerRow;
-            return glm::uvec3(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), 1);
-        };
+    probeLightingPass->readwrite_storage_buffers.push_back(placedProbes);
+    probeLightingPass->indirect_dispatch_buffer = placeProbesIndirectBuffer;
     probeLightingPass->Create();
 
-    ComputePass* denoisePass = renderer.CreateShaderPass<ComputePass>();
-    denoisePass->spirv = denoise_spirv;
-    denoisePass->spirv_size = denoise_spirv_sizeInBytes / 4;
-    denoisePass->threadcount = {64, 1, 1};
-    denoisePass->readonly_storage_buffers.push_back(posBuffer);
-    denoisePass->readonly_storage_buffers.push_back(contree_headers);
-    denoisePass->readonly_storage_buffers.push_back(contree_data);
-    denoisePass->readonly_storage_buffers.push_back(chunks);
-    denoisePass->readonly_storage_buffers.push_back(chunkPositionsHeader);
-    denoisePass->readonly_storage_buffers.push_back(chunkPositions);
-    denoisePass->readwrite_storage_buffers.push_back(faceEntries);
-    denoisePass->readwrite_storage_buffers.push_back(smoothFaces);
-    denoisePass->dispatchFunc =
-        [faceEntries](const ComputePass&) {
-            const size_t threads = 64;
-            const size_t groupsPerRow = 65535;
-            const size_t groupCount = (faceEntries->GetSize() + threads - 1) / threads;
-            const size_t groupsX = groupCount < groupsPerRow ? groupCount : groupsPerRow;
-            const size_t groupsY = (groupCount + groupsPerRow - 1) / groupsPerRow;
-            return glm::uvec3(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), 1);
-        };
-    denoisePass->Create();
+    // ComputePass* denoisePass = renderer.CreateShaderPass<ComputePass>();
+    // denoisePass->spirv = denoise_spirv;
+    // denoisePass->spirv_size = denoise_spirv_sizeInBytes / 4;
+    // denoisePass->threadcount = {64, 1, 1};
+    // denoisePass->readonly_storage_buffers.push_back(posBuffer);
+    // denoisePass->readwrite_storage_buffers.push_back(faceEntries);
+    // denoisePass->readwrite_storage_buffers.push_back(placedProbes);
+    // denoisePass->readwrite_storage_buffers.push_back(smoothFaces);
+
+    // denoisePass->indirect_dispatch_buffer = placeProbesIndirectBuffer;
+    // denoisePass->Create();
 
     ComputePass* combinePass = renderer.CreateShaderPass<ComputePass>();
     combinePass->spirv = probecombine_spirv;
@@ -216,7 +231,7 @@ void VoxelRenderer::Init() {
     combinePass->threadcount = {8, 8, 1};
     combinePass->readonly_storage_textures.push_back(albedo);
     combinePass->readonly_storage_textures.push_back(probeIndex);
-    combinePass->readonly_storage_buffers.push_back(smoothFaces);
+    combinePass->readonly_storage_buffers.push_back(faceEntries);
     combinePass->readwrite_storage_textures.push_back(display);
     combinePass->dispatchFunc = [display](const ComputePass&) {
         return glm::uvec3(
