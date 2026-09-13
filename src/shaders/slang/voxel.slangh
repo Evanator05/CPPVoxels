@@ -48,12 +48,8 @@ struct ContreeNode {
 }
 
 struct Chunk {
-    static const uint8_t CHUNK_WIDTH = 64;
-    static const uint32_t FLAG_EXISTS = 0b00000000000000000000000000000001;
-    static const uint32_t FLAG_DIRTY = 0b00000000000000000000000000000010;
-
+    static const uint8_t WIDTH = 64;
     int3 position; // the position in chunk space of this chunk
-    //uint32_t flags;     // flags about the chunk
     uint32_t contree_node;
 };
 

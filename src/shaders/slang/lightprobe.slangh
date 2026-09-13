@@ -1,0 +1,204 @@
+#ifndef LIGHTPROBE_SLANGH
+#define LIGHTPROBE_SLANGH
+
+#include "voxel.slangh"
+
+static const uint LIGHT_PROBE_WIDTH = 16u;
+static const uint LIGHT_PROBE_SPACING = 4u;
+static const uint LIGHT_PROBES_PER_CHUNK = 4096u;
+static const uint LIGHT_PROBE_INDEX_MASK = 0xFFFu;
+
+struct LightProbe {
+    static constexpr uint32_t RED_MASK_SHIFT = 0;
+    static constexpr uint32_t RED_MASK = 0b11111u;
+
+    static constexpr uint32_t GREEN_MASK_SHIFT = 5;
+    static constexpr uint32_t GREEN_MASK = RED_MASK << GREEN_MASK_SHIFT;
+
+    static constexpr uint32_t BLUE_MASK_SHIFT = 10;
+    static constexpr uint32_t BLUE_MASK = RED_MASK << BLUE_MASK_SHIFT;
+
+    static constexpr uint32_t NORMAL_SHIFT = 15;
+    static constexpr uint32_t NORMAL_MASK = RED_MASK << NORMAL_SHIFT;
+
+    static constexpr uint32_t ENABLED_MASK_SHIFT = 20;
+    static constexpr uint32_t ENABLED_MASK = 1u << ENABLED_MASK_SHIFT;
+
+    uint32_t light;
+    uint64_t solid;
+
+    bool IsEnabled() {
+        return (light & ENABLED_MASK) != 0u;
+    }
+
+    uint GetNormal() {
+        return (light & NORMAL_MASK) >> NORMAL_SHIFT;
+    }
+
+    uint3 GetLight() {
+        return uint3(
+            (light & RED_MASK) >> RED_MASK_SHIFT,
+            (light & GREEN_MASK) >> GREEN_MASK_SHIFT,
+            (light & BLUE_MASK) >> BLUE_MASK_SHIFT
+        );
+    }
+};
+
+struct LightChunk {
+    int3 position;
+    LightProbe probes[Chunk::WIDTH * Chunk::WIDTH * Chunk::WIDTH / (4 * 4 * 4)];
+};
+
+struct LightProbeAddress {
+    bool valid;
+    uint chunkIndex;
+    uint probeIndex;
+    uint globalIndex;
+};
+
+struct LightProbeManager {
+    StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
+    StructuredBuffer<uint32_t> chunkPositions;
+    RWStructuredBuffer<LightChunk> lightChunks;
+    RWStructuredBuffer<uint> activeProbes;
+
+    int FloorDiv64(int x) {
+        if (x >= 0) return x / 64;
+        return -((-x + 63) / 64);
+    }
+
+    int3 GetChunkPosition(int3 position) {
+        return int3(
+            FloorDiv64(position.x),
+            FloorDiv64(position.y),
+            FloorDiv64(position.z)
+        );
+    }
+
+    LightProbeAddress GetProbeAddress(int3 position) {
+        LightProbeAddress result;
+
+        result.valid = false;
+        result.chunkIndex = POINTER_EMPTY;
+        result.probeIndex = 0u;
+        result.globalIndex = 0u;
+
+        ChunkPositionsHeader header = chunkPositionsHeader[0];
+
+        int3 chunkPosition = GetChunkPosition(position);
+
+        int3 regionPosition = chunkPosition - header.position;
+
+        if (any(regionPosition < int3(0)) || any(regionPosition >= int3(header.size)))
+            return result;
+        
+        uint width = header.size.x;
+
+        uint area = header.size.x * header.size.y;
+        uint chunkPositionIndex =
+            uint(regionPosition.x) +
+            uint(regionPosition.y) * width +
+            uint(regionPosition.z) * area;
+
+        uint chunkIndex = chunkPositions[chunkPositionIndex];
+
+        if (chunkIndex == POINTER_EMPTY)
+            return result;
+
+        int3 localPosition = position - chunkPosition * int(Chunk::WIDTH);
+        uint3 probePosition = uint3(localPosition) >> 2u;
+
+        uint probeIndex =
+            probePosition.x |
+            (probePosition.y << 4u) |
+            (probePosition.z << 8u);
+
+        result.valid = true;
+        result.chunkIndex = chunkIndex;
+        result.probeIndex = probeIndex;
+
+        result.globalIndex = chunkIndex * LIGHT_PROBES_PER_CHUNK + probeIndex;
+
+        return result;
+    }
+
+    uint GetChunkIndex(uint globalIndex) {
+        return globalIndex >> 12u;
+    }
+
+    uint GetProbeIndex(uint globalIndex) {
+        return globalIndex & LIGHT_PROBE_INDEX_MASK;
+    }
+
+    void ActivateProbe(int3 position) {
+        LightProbeAddress address = GetProbeAddress(position);
+        if (!address.valid)
+            return;
+        lightChunks[address.chunkIndex].probes[address.probeIndex].light |= LightProbe::ENABLED_MASK;
+    }
+
+    void AddActiveProbe(uint index) {
+        uint listIndex;
+        InterlockedAdd(activeProbes[0], 1u, listIndex);
+        activeProbes[listIndex + 1u] = index;
+    }
+
+    void CreateProbe(int3 position) {
+        LightProbeAddress address = GetProbeAddress(position);
+        if (!address.valid)
+            return;
+        lightChunks[address.chunkIndex].probes[address.probeIndex].light |= LightProbe::ENABLED_MASK;
+        AddActiveProbe(address.globalIndex);
+    }
+
+    uint ActivateAndAddProbe(int3 position) {
+        LightProbeAddress address = GetProbeAddress(position);
+        if (!address.valid) return POINTER_EMPTY;
+
+        uint oldLight;
+        InterlockedOr(lightChunks[address.chunkIndex].probes[address.probeIndex].light, LightProbe::ENABLED_MASK, oldLight);
+
+        if ((oldLight & LightProbe::ENABLED_MASK) == 0u)
+            AddActiveProbe(address.globalIndex);
+        
+        return address.globalIndex;
+    }
+
+    uint GetActiveProbeCount() {
+        return activeProbes[0];
+    }
+
+    uint GetActiveProbeIndex(uint activeIndex) {
+        return activeProbes[activeIndex + 1u];
+    }
+
+    LightProbeAddress GetAddressFromGlobalIndex(uint globalIndex) {
+        LightProbeAddress result;
+        result.valid = true;
+        result.chunkIndex = globalIndex >> 12u;
+        result.probeIndex = globalIndex & LIGHT_PROBE_INDEX_MASK;
+        result.globalIndex = globalIndex;
+        return result;
+    }
+};
+
+uint EncodeNormal26(int3 n) {
+    uint x = uint(n.x + 1);
+    uint y = uint(n.y + 1);
+    uint z = uint(n.z + 1);
+    uint index = x + y * 3u + z * 9u;
+    if (index > 13u)
+        --index;
+    return index;
+}
+
+int3 DecodeNormal26(uint index) {
+    if (index >= 13u)
+        ++index;
+    int x = int(index % 3u);
+    int y = int((index / 3u) % 3u);
+    int z = int(index / 9u);
+    return int3(x - 1, y - 1, z - 1);
+}
+
+#endif
