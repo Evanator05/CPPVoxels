@@ -55,10 +55,15 @@ void VoxelRenderer::Init() {
     fullDepth->Create();
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    Generator::LoadVoxFile(vm, "nuke.vox");
+    Generator::LoadVoxFile(vm, "castle.vox");
+    Voxel v;
+    v.set_rgb(0, 0, 31);
+    v.set_solid(true);
+    v.set_type(Voxel::Type::Emissive);
+    v.set_payload(31);
+    vm.FillVoxels(glm::ivec3(-24, 157, 108), glm::ivec3(-24-10, 157-5, 108-10), v);
     //Generator::GenerateCaves(vm);
     CreateLightChunks();
-
 
     cameraTransformBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
     cameraTransformBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
@@ -353,10 +358,12 @@ void VoxelRenderer::Process() {
         const float fps = frames / elapsed;
 
         Console& console = GetModule<Console>();
-        console.Log(
-            "FPS: " + std::to_string((int)std::round(fps)),
-            Console::LogLevel::Info
-        );
+        // console.Log(
+        //     "FPS: " + std::to_string((int)std::round(fps)),
+        //     Console::LogLevel::Info
+        // );
+
+        console.Log("POS " + std::to_string(cameraTransform.localPos.x) + " " + std::to_string(cameraTransform.localPos.y) + " " + std::to_string(cameraTransform.localPos.z), Console::LogLevel::Info);
 
         elapsed = 0.0f;
         frames = 0;

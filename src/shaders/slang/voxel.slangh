@@ -4,23 +4,66 @@
 static const uint32_t POINTER_EMPTY = 0xFFFFFFFF;
 
 struct Voxel {
-    static const int32_t COLORCHANNEL = 0b00011111;
-    static const int32_t SOLID = 0b1000000000000000;
+    enum Type : uint {
+        Regular = 0,
+        Emissive = 1
+    };
 
-    int32_t data;
+    static const uint COLORCHANNEL = 0x1Fu;
+    static const uint SOLID = 0x8000u;
+
+    uint data = 0;
+
+    uint r() { return data & COLORCHANNEL; }
+    uint g() { return (data >> 5) & COLORCHANNEL; }
+    uint b() { return (data >> 10) & COLORCHANNEL; }
+
+    bool solid() { return (data & SOLID) != 0u; }
+    uint payload() { return (data >> 16) & 0x1Fu; }
+    Type type() { return Type((data >> 21) & 0x03u); }
 
     float3 color() {
-        return float3(
-                   float(data & COLORCHANNEL),
-                   float((data >> 5) & COLORCHANNEL),
-                   float((data >> 10) & COLORCHANNEL)
-                   ) / float(COLORCHANNEL); // divide by 31 to make values 0-1
+        return float3(float(r()), float(g()), float(b())) / 31.0f;
     }
 
-    bool solid() {
-        return bool(data & SOLID);
+    [mutating]
+    void set_r(uint v) {
+        data = (data & ~0x001Fu) | (v & 0x1Fu);
     }
-}
+
+    [mutating]
+    void set_g(uint v) {
+        data = (data & ~0x03E0u) | ((v & 0x1Fu) << 5);
+    }
+
+    [mutating]
+    void set_b(uint v) {
+        data = (data & ~0x7C00u) | ((v & 0x1Fu) << 10);
+    }
+
+    [mutating]
+    void set_rgb(uint r, uint g, uint b) {
+        set_r(r);
+        set_g(g);
+        set_b(b);
+    }
+
+    [mutating]
+    void set_solid(bool v) {
+        if (v) data |= SOLID;
+        else data &= ~SOLID;
+    }
+
+    [mutating]
+    void set_payload(uint v) {
+        data = (data & ~(0x1Fu << 16)) | ((v & 0x1Fu) << 16);
+    }
+
+    [mutating]
+    void set_type(Type v) {
+        data = (data & ~(0x03u << 21)) | ((uint(v) & 0x03u) << 21);
+    }
+};
 
 struct ContreeHeader {
     uint64_t isVoxelMask;

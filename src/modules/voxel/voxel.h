@@ -10,12 +10,19 @@ static constexpr uint32_t CHUNK_FLAG_EXISTS = 0b00000000000000000000000000000001
 static constexpr uint32_t CHUNK_FLAG_DIRTY  = 0b00000000000000000000000000000010;
 static constexpr uint32_t POINTER_EMPTY = UINT32_MAX;
 struct Voxel {
+    enum class Type {
+        Regular,
+        Emissive
+    };
+
     uint32_t data = 0;
     
     uint8_t r() const { return data & 0x1F; }
     uint8_t g() const { return (data >> 5) & 0x1F; }
     uint8_t b() const { return (data >> 10) & 0x1F; }
     bool solid() const { return data & 0x8000; }
+    uint8_t payload() const { return (data >> 16) & 0x1Fu; }
+    uint8_t type() const { return (data >> 21) & 0x03u; }
 
     void set_r(uint8_t v) { data = (data & ~0x001F) | (v & 0x1F); }
     void set_g(uint8_t v) { data = (data & ~0x03E0) | ((v & 0x1F) << 5); }
@@ -25,6 +32,14 @@ struct Voxel {
     void set_solid(bool v) {
         if (v) data |= 0x8000;
         else data &= ~0x8000;
+    }
+
+    void set_payload(uint8_t v) {
+        data = (data & ~(0x1Fu << 16)) | ((uint32_t(v) & 0x1Fu) << 16);
+    }
+
+    void set_type(Type v) {
+        data = (data & ~(0x03u << 21)) | ((uint32_t(v) & 0x03u) << 21);
     }
 
     std::string to_string() {

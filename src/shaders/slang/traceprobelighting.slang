@@ -182,17 +182,22 @@ float3 PL_Indirect(float3 origin, float3 direction, float3 sunDirection, float t
         if (hit.depth <= PL_RAY_BIAS)
             break;
 
+        float3 albedo = saturate(hit.voxel.color());
+
+        if (hit.voxel.type() == Voxel::Type::Emissive) {
+            float strength = float(hit.voxel.payload());
+            radiance += throughput * albedo * strength;
+        }
+
         float3 normal = float3(hit.normal);
         float lengthSquared = dot(normal, normal);
 
-        normal = lengthSquared > 0.000001
-            ? normal * rsqrt(lengthSquared)
-            : -direction;
+        normal = lengthSquared > 0.000001 ? normal * rsqrt(lengthSquared) : -direction;
 
         float3 position = origin + direction * hit.depth;
         float3 bounceOrigin = position + normal * PL_RAY_BIAS;
 
-        throughput *= saturate(hit.voxel.color());
+        throughput *= albedo;
 
         if (max(throughput.x, max(throughput.y, throughput.z)) <= 0.0)
             break;
@@ -207,14 +212,22 @@ float3 PL_Indirect(float3 origin, float3 direction, float3 sunDirection, float t
             break;
 
         float2 bounceSample = float2(
-            PL_Sample(sequenceIndex, bounceBases[bounce * 2u], probeSeed, 6u + bounce * 2u),
-            PL_Sample(sequenceIndex, bounceBases[bounce * 2u + 1u], probeSeed, 7u + bounce * 2u)
+            PL_Sample(
+                sequenceIndex,
+                bounceBases[bounce * 2u],
+                probeSeed,
+                6u + bounce * 2u
+            ),
+            PL_Sample(
+                sequenceIndex,
+                bounceBases[bounce * 2u + 1u],
+                probeSeed,
+                7u + bounce * 2u
+            )
         );
-
         origin = bounceOrigin;
         direction = PL_Hemisphere(normal, bounceSample);
     }
-
     return radiance;
 }
 
@@ -334,7 +347,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         lighting /= float(PROBE_LIGHTING_SAMPLES);
     }
 
-    float3 accumulated = min(lerp(history, lighting, PL_HISTORY_RATE), float3(1));
+    float3 accumulated = lerp(history, lighting, PL_HISTORY_RATE);
 
     manager.SetLight(address, accumulated);
     manager.DeactivateProbe(probeBase);

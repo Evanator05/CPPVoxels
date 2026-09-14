@@ -12,7 +12,7 @@
 ### Lighting & Shading
 - [x] Per-voxel visibility hashmap for lighting
 - [x] Per-voxel lighting model
-- [ ] Emissive voxels
+- [x] Emissive voxels
 - [x] Global illumination
 
 ### Voxel Assets

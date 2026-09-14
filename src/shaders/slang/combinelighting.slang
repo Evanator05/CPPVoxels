@@ -118,7 +118,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
             manager.lightChunks[address.chunkIndex].probes[address.probeIndex];
         if (probe.solid == 0xFFFFFFFFFFFFFFFFull)
             continue;
-
+        
         uint normalIndex = probe.GetNormal();
         if (hasOutward && normalIndex < 26u) {
             float3 probeNormal = float3(DecodeNormal26(normalIndex));
@@ -139,5 +139,5 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
 
     float3 mapped = hdr / (float3(1.0) + hdr);
 
-    displayImage[pixel] = float4(albedo.rgb * lighting, albedo.a);
+    displayImage[pixel] = float4(mapped, albedo.a);
 }
