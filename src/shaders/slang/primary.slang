@@ -1,5 +1,6 @@
 #include "raytrace.slangh"
 #include "sky.slangh"
+#include "lightprobe.slangh"
 
 struct CameraTransform {
     int3 chunkPos;
@@ -35,6 +36,16 @@ RWTexture2D<float> depthImage;
 [format("rgba8")]
 RWTexture2D<float4> albedoImage;
 
+[[vk::binding(2, 1)]]
+[format("rgba32i")]
+RWTexture2D<int4> positionImage;
+
+[[vk::binding(3, 1)]]
+RWStructuredBuffer<LightChunk> lightChunks;
+
+[[vk::binding(4, 1)]]
+RWStructuredBuffer<uint> activeProbes;
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
@@ -61,11 +72,20 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
     float3 lightDir = normalize(float3(sin(camera.time / 100), 1, cos(camera.time / 100)));
 
     if (result.hit) {
+        LightProbeManager manager;
+        manager.chunkPositions = chunkPositions;
+        manager.chunkPositionsHeader = chunkPositionsHeader;
+        manager.lightChunks = lightChunks;
+        manager.activeProbes = activeProbes;
+
+        manager.ActivateAndAddProbe(result.position);
+        manager.ActivateAndAddProbe(result.position + int3(result.normal) * LIGHT_PROBE_SPACING);
         color = result.voxel.color();
     } else {
         color = skyColor(ray.direction, camera.localPos, camera.time, lightDir);
     }
 
     depthImage[pos] = max(result.depth + depthImage[pos], 0);
+    positionImage[pos] = result.hit ? int4(result.position, int(EncodeNormal26(int3(result.normal)) + 1u)) : int4(0);
     albedoImage[pos] = float4(color, 1);
 }

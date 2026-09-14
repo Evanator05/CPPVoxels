@@ -1,3 +1,6 @@
+#ifndef VOXEL_SLANGH
+#define VOXEL_SLANGH
+
 static const uint32_t POINTER_EMPTY = 0xFFFFFFFF;
 
 struct Voxel {
@@ -49,7 +52,7 @@ struct ContreeNode {
 
 struct Chunk {
     static const uint8_t WIDTH = 64;
-    int3 position; // the position in chunk space of this chunk
+    int3 position;
     uint32_t contree_node;
 };
 
@@ -58,3 +61,5 @@ struct ChunkPositionsHeader {
     uint3 size;
     uint32_t get_size(void) { return size.x * size.y * size.z; }
 };
+
+#endif
