@@ -7,7 +7,7 @@
 - [x] Primary ray casting
 - [x] Half resolution depth pre-pass
 - [x] Sparse voxel 64 tree chunks
-- [ ] Dirty only data uploading
+- [x] Dirty only data uploading
 
 ### Lighting & Shading
 - [x] Per-voxel visibility hashmap for lighting
