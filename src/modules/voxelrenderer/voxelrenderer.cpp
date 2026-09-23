@@ -56,13 +56,14 @@ void VoxelRenderer::Init() {
 
     VoxelManager &vm = GetModule<VoxelManager>();
     Generator::LoadVoxFile(vm, "castle.vox");
+    //Generator::GenerateCaves(vm);
     Voxel v;
-    v.set_rgb(0, 0, 31);
+    v.set_rgb(31, 31, 5);
     v.set_solid(true);
     v.set_type(Voxel::Type::Emissive);
     v.set_payload(31);
-    vm.FillVoxels(glm::ivec3(-24, 157, 108), glm::ivec3(-24-10, 157-5, 108-10), v);
-    //Generator::GenerateCaves(vm);
+    vm.FillVoxels(glm::ivec3(-24, 162, 108), glm::ivec3(-24-10, 157-5, 108+40), v);
+    
     CreateLightChunks();
 
     cameraTransformBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
@@ -70,35 +71,35 @@ void VoxelRenderer::Init() {
     cameraTransformBuffer->SetSize(1);
     cameraTransformBuffer->Create();
 
-    TypedBuffer<ContreeHeader> *contree_headers = renderer.CreateResource<TypedBuffer<ContreeHeader>>();
-    contree_headers->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    contree_headers->SetSize(vm.contree_headers.size());
-    contree_headers->Create();
-    contree_headers->Upload(vm.contree_headers);
+    contreeHeaderBuffer = renderer.CreateResource<TypedBuffer<ContreeHeader>>();
+    contreeHeaderBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    contreeHeaderBuffer->SetSize(vm.contree_headers.size());
+    contreeHeaderBuffer->Create();
+    contreeHeaderBuffer->Upload(vm.contree_headers, 0, vm.contree_headers.size());
 
-    TypedBuffer<ContreeData> *contree_data = renderer.CreateResource<TypedBuffer<ContreeData>>();
-    contree_data->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    contree_data->SetSize(vm.contree_data.size());
-    contree_data->Create();
-    contree_data->Upload(vm.contree_data);
+    contreeDataBuffer = renderer.CreateResource<TypedBuffer<ContreeData>>();
+    contreeDataBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+    contreeDataBuffer->SetSize(vm.contree_data.size());
+    contreeDataBuffer->Create();
+    contreeDataBuffer->Upload(vm.contree_data, 0, vm.contree_data.size());
 
     TypedBuffer<Chunk> *chunks = renderer.CreateResource<TypedBuffer<Chunk>>();
     chunks->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     chunks->SetSize(vm.allocated_chunks.size());
     chunks->Create();
-    chunks->Upload(vm.allocated_chunks);
+    chunks->Upload(vm.allocated_chunks, 0, vm.allocated_chunks.size());
 
     TypedBuffer<ChunkPositionsHeader> *chunkPositionsHeader = renderer.CreateResource<TypedBuffer<ChunkPositionsHeader>>();
     chunkPositionsHeader->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     chunkPositionsHeader->SetSize(1);
     chunkPositionsHeader->Create();
-    chunkPositionsHeader->Upload((ChunkPositionsHeader*)&vm.chunk_occupancy, 1);
+    chunkPositionsHeader->Upload((ChunkPositionsHeader*)&vm.chunk_occupancy, 0, 1);
 
     TypedBuffer<uint32_t> *chunkPositions = renderer.CreateResource<TypedBuffer<uint32_t>>();
     chunkPositions->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     chunkPositions->SetSize(vm.chunk_occupancy.get_size());
     chunkPositions->Create();
-    chunkPositions->Upload((uint32_t*)vm.chunk_occupancy.chunks, vm.chunk_occupancy.get_size());
+    chunkPositions->Upload((uint32_t*)vm.chunk_occupancy.chunks, 0, vm.chunk_occupancy.get_size());
 
     TypedBuffer<uint32_t> *activeProbesBuffer = renderer.CreateResource<TypedBuffer<uint32_t>>();
     activeProbesBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
@@ -146,8 +147,8 @@ void VoxelRenderer::Init() {
         );
     };
     depthPass->readonly_storage_buffers.push_back(cameraTransformBuffer);
-    depthPass->readonly_storage_buffers.push_back(contree_headers);
-    depthPass->readonly_storage_buffers.push_back(contree_data);
+    depthPass->readonly_storage_buffers.push_back(contreeHeaderBuffer);
+    depthPass->readonly_storage_buffers.push_back(contreeDataBuffer);
     depthPass->readonly_storage_buffers.push_back(chunks);
     depthPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     depthPass->readonly_storage_buffers.push_back(chunkPositions);
@@ -193,8 +194,8 @@ void VoxelRenderer::Init() {
         );
     };
     primaryPass->readonly_storage_buffers.push_back(cameraTransformBuffer);
-    primaryPass->readonly_storage_buffers.push_back(contree_headers);
-    primaryPass->readonly_storage_buffers.push_back(contree_data);
+    primaryPass->readonly_storage_buffers.push_back(contreeHeaderBuffer);
+    primaryPass->readonly_storage_buffers.push_back(contreeDataBuffer);
     primaryPass->readonly_storage_buffers.push_back(chunks);
     primaryPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     primaryPass->readonly_storage_buffers.push_back(chunkPositions);
@@ -220,8 +221,8 @@ void VoxelRenderer::Init() {
     traceProbeLightingPass->threadcount = {64, 1, 1};
     traceProbeLightingPass->indirect_dispatch_buffer = indirectArgsBuffer;
     traceProbeLightingPass->readonly_storage_buffers.push_back(cameraTransformBuffer);
-    traceProbeLightingPass->readonly_storage_buffers.push_back(contree_headers);
-    traceProbeLightingPass->readonly_storage_buffers.push_back(contree_data);
+    traceProbeLightingPass->readonly_storage_buffers.push_back(contreeHeaderBuffer);
+    traceProbeLightingPass->readonly_storage_buffers.push_back(contreeDataBuffer);
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunks);
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunkPositions);
@@ -259,119 +260,20 @@ void VoxelRenderer::Init() {
     gui->destination = &renderer.swapchainTexture;
 
     cameraTransform.localPos = {0, 150, 0};
+    vm.CleanContreeNodes();
 }
 
 void VoxelRenderer::Process() {
-    Input& input = GetModule<Input>();
-    input.SetMouseLock(true);
-
-    const float deltaTime = GetModule<DeltaTime>().Get();
-
-    float moveSpeed = 50.0f;
-    cameraTransform.time += deltaTime;
-
-    if (input.IsHeld("speedmodifier"))
-        moveSpeed *= 5.0f;
-
-    // ------------------------------------------------------------
-    // Camera rotation
-    // ------------------------------------------------------------
-
-    static float yaw = 0.0f;
-    static float pitch = 0.0f;
-
-    // Scales both mouse and controller look.
-    constexpr float lookSpeed = 1.25f;
-
-    const float lookX =
-        input.GetDelta("lookright", deltaTime) -
-        input.GetDelta("lookleft", deltaTime);
-
-    const float lookY =
-        input.GetDelta("lookup", deltaTime) -
-        input.GetDelta("lookdown", deltaTime);
-
-    yaw   += lookX * lookSpeed;
-    pitch += lookY * lookSpeed;
-
-    constexpr float pitchLimit = glm::half_pi<float>() - 0.001f;
-    pitch = glm::clamp(pitch, -pitchLimit, pitchLimit);
-
-    glm::vec3 forward;
-    forward.x = cos(pitch) * sin(yaw);
-    forward.y = sin(pitch);
-    forward.z = cos(pitch) * cos(yaw);
-
-    const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
-
-    const glm::vec3 right =
-        glm::normalize(glm::cross(worldUp, forward));
-
-    const glm::vec3 up =
-        glm::normalize(glm::cross(forward, right));
-
-    // Store as columns.
-    cameraTransform.rotation0 = right;
-    cameraTransform.rotation1 = up;
-    cameraTransform.rotation2 = forward;
-
-    // ------------------------------------------------------------
-    // Movement
-    // ------------------------------------------------------------
-
-    glm::vec3 movement(
-        input.GetStrength("right") - input.GetStrength("left"),
-        input.GetStrength("up") - input.GetStrength("down"),
-        input.GetStrength("forward") - input.GetStrength("backward")
-    );
-
-    const float movementLength = glm::length(movement);
-
-    if (movementLength > 1.0f)
-        movement /= movementLength;
-
-    const glm::vec3 worldMovement =
-        right * movement.x +
-        up * movement.y +
-        forward * movement.z;
-
-    cameraTransform.localPos += worldMovement * moveSpeed * deltaTime;
-    cameraTransform.frame++;
-
-    // ------------------------------------------------------------
-    // Upload
-    // ------------------------------------------------------------
-
-    cameraTransformBuffer->Upload(&cameraTransform, 1);
-
-    // ------------------------------------------------------------
-    // FPS
-    // ------------------------------------------------------------
-
-    static float elapsed = 0.0f;
-    static uint32_t frames = 0;
-
-    elapsed += deltaTime;
-    frames++;
-
-    if (elapsed >= 0.1f) {
-        const float fps = frames / elapsed;
-
-        Console& console = GetModule<Console>();
-        // console.Log(
-        //     "FPS: " + std::to_string((int)std::round(fps)),
-        //     Console::LogLevel::Info
-        // );
-
-        console.Log("POS " + std::to_string(cameraTransform.localPos.x) + " " + std::to_string(cameraTransform.localPos.y) + " " + std::to_string(cameraTransform.localPos.z), Console::LogLevel::Info);
-
-        elapsed = 0.0f;
-        frames = 0;
-    }
+    UploadDirtyContreeNodes();
+    cameraTransformBuffer->Upload(&cameraTransform, 0, 1);
 }
 
 void VoxelRenderer::Shutdown() {
-    
+    if (uploadTransferBuffer) {
+        SDL_ReleaseGPUTransferBuffer(device, uploadTransferBuffer);
+        uploadTransferBuffer = nullptr;
+        uploadTransferBufferSize = 0;
+    }
 }
 
 void VoxelRenderer::CreateLightChunks() {
@@ -395,7 +297,7 @@ void VoxelRenderer::CreateLightChunks() {
         lightChunksBuffer->Create();
     }
     
-    lightChunksBuffer->Upload(lightChunks);
+    lightChunksBuffer->Upload(lightChunks, 0, lightChunks.size());
 }
 
 void VoxelRenderer::UpdateLightChunk(uint32_t chunk_index) {
@@ -447,10 +349,7 @@ void VoxelRenderer::UpdateLightProbeSolid(uint32_t chunk_index, uint16_t probe_i
     
 }
 
-void VoxelRenderer::UpdateLightProbeNormal(
-    uint32_t chunk_index,
-    uint16_t probe_index
-) {
+void VoxelRenderer::UpdateLightProbeNormal(uint32_t chunk_index, uint16_t probe_index) {
     VoxelManager& vm = GetModule<VoxelManager>();
 
     const glm::ivec3 directions[6] = {
@@ -518,8 +417,7 @@ void VoxelRenderer::UpdateLightProbeNormal(
             uint32_t(position.y) * 16u +
             uint32_t(position.z) * 256u;
 
-        neighbors[i] =
-            lightChunks[neighborChunk].probes[neighborProbe].solid;
+        neighbors[i] = lightChunks[neighborChunk].probes[neighborProbe].solid;
     }
 
     LightProbe& probe = lightChunks[chunk_index].probes[probe_index];
@@ -550,13 +448,9 @@ glm::ivec3 VoxelRenderer::DecodeNormal26(uint8_t normal26) {
     );
 }
 
-#include <bit> // C++20
 
-glm::ivec3 VoxelRenderer::GetNormal(
-    uint64_t solid,
-    const uint64_t neighbors[6]
-) {
-    // Each mask covers an entire half, including interior voxels.
+
+glm::ivec3 VoxelRenderer::GetNormal(uint64_t solid, const uint64_t neighbors[6]) {
     constexpr uint64_t X_LOW  = 0x3333333333333333ULL;
     constexpr uint64_t X_HIGH = 0xCCCCCCCCCCCCCCCCULL;
 
@@ -572,15 +466,111 @@ glm::ivec3 VoxelRenderer::GetNormal(
         std::popcount(solid & Z_LOW) - std::popcount(solid & Z_HIGH)
     );
 
-    // Only fall back when the probe has no net internal direction.
     if (normal == glm::ivec3(0)) {
-        // Neighbor order: +X, -X, +Y, -Y, +Z, -Z.
         normal = glm::ivec3(
             std::popcount(neighbors[1]) - std::popcount(neighbors[0]),
             std::popcount(neighbors[3]) - std::popcount(neighbors[2]),
             std::popcount(neighbors[5]) - std::popcount(neighbors[4])
         );
     }
-
     return glm::sign(normal);
+}
+
+void VoxelRenderer::EnsureUploadTransferBuffer(size_t required_size) {
+    if (required_size <= uploadTransferBufferSize)
+        return;
+
+    if (uploadTransferBuffer) {
+        SDL_ReleaseGPUTransferBuffer(device, uploadTransferBuffer);
+        uploadTransferBuffer = nullptr;
+    }
+
+    size_t new_size = uploadTransferBufferSize;
+
+    if (new_size == 0)
+        new_size = 1024 * 1024;
+
+    while (new_size < required_size)
+        new_size *= 2;
+
+    SDL_GPUTransferBufferCreateInfo info{};
+    info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    info.size = static_cast<Uint32>(new_size);
+
+    uploadTransferBuffer = SDL_CreateGPUTransferBuffer(device, &info);
+    uploadTransferBufferSize = new_size;
+}
+
+void VoxelRenderer::UploadDirtyContreeNodes() {
+    VoxelManager& vm = GetModule<VoxelManager>();
+
+    if (contreeHeaderBuffer->GetSize() != vm.contree_headers.size() || contreeDataBuffer->GetSize() != vm.contree_data.size()) {
+        contreeHeaderBuffer->SetSize(vm.contree_headers.size());
+        contreeDataBuffer->SetSize(vm.contree_data.size());
+        contreeHeaderBuffer->Upload(vm.contree_headers, 0, vm.contree_headers.size());
+        contreeDataBuffer->Upload(vm.contree_data, 0, vm.contree_data.size());
+        return;
+    }
+
+    size_t dirty_count = 0;
+
+    for (uint64_t dirty : vm.dirty_contree_nodes)
+        dirty_count += std::popcount(dirty);
+
+    if (dirty_count == 0)
+        return;
+
+    size_t required_size = dirty_count * (sizeof(ContreeHeader) + sizeof(ContreeData));
+
+    EnsureUploadTransferBuffer(required_size);
+
+    uint8_t *mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, uploadTransferBuffer, true));
+
+    size_t transfer_offset = 0;
+
+    for (uint32_t page_index = 0; page_index < vm.dirty_contree_nodes.size(); ++page_index) {
+        uint64_t dirty = vm.dirty_contree_nodes[page_index];
+
+        while (dirty) {
+            uint32_t bit_index = std::countr_zero(dirty);
+            uint32_t node_index = page_index * 64 + bit_index;
+
+            if (node_index >= vm.contree_headers.size())
+                break;
+
+            memcpy(mapped + transfer_offset, &vm.contree_headers[node_index], sizeof(ContreeHeader));
+            transfer_offset += sizeof(ContreeHeader);
+            memcpy(mapped + transfer_offset, &vm.contree_data[node_index], sizeof(ContreeData));
+            transfer_offset += sizeof(ContreeData);
+
+            dirty &= dirty - 1;
+        }
+    }
+
+    SDL_UnmapGPUTransferBuffer(device, uploadTransferBuffer);
+
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
+    SDL_GPUCopyPass *copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    transfer_offset = 0;
+
+    for (uint32_t page_index = 0; page_index < vm.dirty_contree_nodes.size(); ++page_index) {
+        uint64_t dirty = vm.dirty_contree_nodes[page_index];
+        while (dirty) {
+            uint32_t bit_index = std::countr_zero(dirty);
+            uint32_t node_index = page_index * 64 + bit_index;
+
+            if (node_index >= vm.contree_headers.size())
+                break;
+
+            contreeHeaderBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
+            transfer_offset += sizeof(ContreeHeader);
+            contreeDataBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
+            transfer_offset += sizeof(ContreeData);
+
+            dirty &= dirty - 1;
+        }
+    }
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
 }

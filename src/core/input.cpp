@@ -26,6 +26,8 @@ void Input::Init() {
     CreateAction("lookleft");
     CreateAction("lookright");
     CreateAction("speedmodifier");
+    CreateAction("edit");
+    CreateAction("lock_cursor");
 
     CreateBinding("forward", SDLK_W);
     CreateBinding("backward", SDLK_S);
@@ -34,6 +36,8 @@ void Input::Init() {
     CreateBinding("up", SDLK_SPACE);
     CreateBinding("down", SDLK_LCTRL);
     CreateBinding("speedmodifier", SDLK_LSHIFT);
+    CreateBinding("edit", SDLK_E);
+    CreateBinding("lock_cursor", SDLK_L);
 
     CreateGamepadAxisBinding("forward", SDL_GAMEPAD_AXIS_LEFTY, -1);
     CreateGamepadAxisBinding("backward", SDL_GAMEPAD_AXIS_LEFTY, 1);
@@ -42,6 +46,7 @@ void Input::Init() {
     CreateGamepadBinding("up", SDL_GAMEPAD_BUTTON_SOUTH);
     CreateGamepadBinding("down", SDL_GAMEPAD_BUTTON_EAST);
     CreateGamepadBinding("speedmodifier", SDL_GAMEPAD_BUTTON_WEST);
+    CreateGamepadBinding("edit", SDL_GAMEPAD_BUTTON_NORTH);
 
     CreateMouseBinding("lookup", MouseDirection::Up, 0.002f);
     CreateMouseBinding("lookdown", MouseDirection::Down, 0.002f);

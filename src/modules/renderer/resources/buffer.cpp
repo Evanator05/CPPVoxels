@@ -25,6 +25,19 @@ SDL_GPUBuffer* Buffer::GetGPU() {
     return gpu_resource;
 }
 
+void Buffer::Upload(SDL_GPUCopyPass *pass, SDL_GPUTransferBuffer *transfer_buffer, size_t transfer_start, size_t gpu_start, size_t size) {
+    SDL_GPUTransferBufferLocation source{};
+    source.transfer_buffer = transfer_buffer;
+    source.offset = static_cast<Uint32>(transfer_start);
+
+    SDL_GPUBufferRegion destination{};
+    destination.buffer = gpu_resource;
+    destination.offset = static_cast<Uint32>(gpu_start);
+    destination.size = static_cast<Uint32>(size);
+
+    SDL_UploadToGPUBuffer(pass, &source, &destination, false);
+}
+
 void Buffer::Upload(void *source, size_t cpu_start, size_t gpu_start, size_t size) {
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
     SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
@@ -50,8 +63,6 @@ void Buffer::Upload(void *source, size_t cpu_start, size_t gpu_start, size_t siz
     SDL_UploadToGPUBuffer(pass, &tsource, &tdestination, false);
 
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-
-    
 
     SDL_EndGPUCopyPass(pass);
     SDL_SubmitGPUCommandBuffer(cmd);

@@ -17,6 +17,7 @@ class Buffer : public Resource<SDL_GPUBuffer> {
         void Destroy(void) override;
         SDL_GPUBuffer* GetGPU(void) override;
 
+        void Upload(SDL_GPUCopyPass *pass, SDL_GPUTransferBuffer *transfer_buffer, size_t transfer_start, size_t gpu_start, size_t size);
         void Upload(void *source, size_t cpu_start, size_t gpu_start, size_t size);
         void Download(void *dest, size_t cpu_start, size_t gpu_start, size_t size);
 
@@ -38,12 +39,21 @@ class TypedBuffer : public Buffer {
         using Buffer::SetSize;
         using Buffer::GetSize;
 
-        void Upload(const T *data, size_t count, size_t elementOffset = 0) {
-            Buffer::Upload((void*)data, 0, elementOffset * sizeof(T), count * sizeof(T));
+        void Upload(const T *data, size_t index, size_t count) {
+            Buffer::Upload(
+                (void*)data,
+                index * sizeof(T),
+                index * sizeof(T),
+                count * sizeof(T)
+            );
         }
 
-        void Upload(const std::vector<T> &data, size_t elementOffset = 0) {
-            Upload(data.data(), data.size(), elementOffset);
+        void Upload(SDL_GPUCopyPass *pass, SDL_GPUTransferBuffer *transfer_buffer, size_t transfer_start, size_t index, size_t count) {
+            Buffer::Upload(pass, transfer_buffer, transfer_start, index * sizeof(T), count * sizeof(T));
+        }
+
+        void Upload(const std::vector<T> &data, size_t index, size_t count) {
+            Upload(data.data(), index, count);
         }
 
         void Download(T *out, size_t count, size_t elementOffset = 0) {

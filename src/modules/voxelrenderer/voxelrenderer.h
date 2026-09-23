@@ -9,6 +9,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "modules/voxel/voxel.h"
+
 class VoxelRenderer : public EngineModule {
     public:
         struct CameraTransform {
@@ -34,6 +35,7 @@ class VoxelRenderer : public EngineModule {
             float blue  = 0.0f;
 
             uint32_t flags = NORMAL_MASK;
+            uint32_t lastSeenFrame = 0;
             uint64_t solid = 0;
 
             void set_normal(uint8_t normal26) {
@@ -48,6 +50,7 @@ class VoxelRenderer : public EngineModule {
         };
     
         using EngineModule::EngineModule;
+
         void Init(void) override;
         void Process(void) override;
         void Shutdown(void) override;
@@ -61,12 +64,21 @@ class VoxelRenderer : public EngineModule {
         glm::ivec3 DecodeNormal26(uint8_t normal26);
         glm::ivec3 GetNormal(uint64_t solid, const uint64_t neighbors[6]);
 
-    private:
-        SDL_GPUDevice *device = nullptr;
-
         CameraTransform cameraTransform{};
+    private:
+        void EnsureUploadTransferBuffer(size_t required_size);
+        void UploadDirtyContreeNodes();
+
+        SDL_GPUDevice *device = nullptr;
+        
         TypedBuffer<CameraTransform> *cameraTransformBuffer = nullptr;
         
         std::vector<LightChunk> lightChunks{};
         TypedBuffer<LightChunk> *lightChunksBuffer = nullptr;
+
+        TypedBuffer<ContreeHeader> *contreeHeaderBuffer = nullptr;
+        TypedBuffer<ContreeData> *contreeDataBuffer = nullptr;
+
+        SDL_GPUTransferBuffer *uploadTransferBuffer = nullptr;
+        size_t uploadTransferBufferSize = 0;
 };

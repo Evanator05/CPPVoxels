@@ -18,6 +18,7 @@ struct LightProbe {
     float green;
     float blue;
     uint32_t flags;
+    uint32_t lastSeenFrame;
     uint64_t solid;
 
     bool IsEnabled() { return (flags & ENABLED_MASK) != 0u; }

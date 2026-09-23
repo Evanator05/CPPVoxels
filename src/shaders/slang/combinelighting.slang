@@ -19,6 +19,64 @@ RWTexture2D<float4> displayImage;
 [[vk::binding(1, 1)]]
 RWStructuredBuffer<LightChunk> lightChunks;
 
+bool CombineHasOutwardAir(uint64_t solid, int3 baseFromVoxel, int3 outward) {
+    uint64_t empty = ~solid;
+    if (empty == 0ull)
+        return false;
+
+    int planeOffset = baseFromVoxel.x * outward.x
+                    + baseFromVoxel.y * outward.y
+                    + baseFromVoxel.z * outward.z;
+    int minProjection = planeOffset;
+    int maxProjection = planeOffset;
+
+    minProjection += outward.x < 0 ? 3 * outward.x : 0;
+    minProjection += outward.y < 0 ? 3 * outward.y : 0;
+    minProjection += outward.z < 0 ? 3 * outward.z : 0;
+    maxProjection += outward.x > 0 ? 3 * outward.x : 0;
+    maxProjection += outward.y > 0 ? 3 * outward.y : 0;
+    maxProjection += outward.z > 0 ? 3 * outward.z : 0;
+
+    if (maxProjection <= 0)
+        return false;
+    if (minProjection > 0 || solid == 0ull)
+        return true;
+
+    int axisCount = (outward.x != 0 ? 1 : 0)
+                  + (outward.y != 0 ? 1 : 0)
+                  + (outward.z != 0 ? 1 : 0);
+    if (axisCount == 1) {
+        uint sliceStep = outward.x != 0 ? 1u : (outward.y != 0 ? 4u : 16u);
+        uint64_t sliceMask = outward.x != 0 ? 0x1111111111111111ull : (outward.y != 0 ? 0x000F000F000F000Full : 0xFFFFull);
+        int direction = outward.x + outward.y + outward.z;
+
+        [unroll]
+        for (uint slice = 0u; slice < 4u; ++slice) {
+            if (planeOffset + int(slice) * direction > 0 &&
+                (empty & (sliceMask << (slice * sliceStep))) != 0ull)
+                return true;
+        }
+        return false;
+    }
+
+    [unroll]
+    for (uint wordIndex = 0u; wordIndex < 2u; ++wordIndex) {
+        uint word = uint(empty >> (wordIndex * 32u));
+        [loop]
+        while (word != 0u) {
+            uint index = wordIndex * 32u + uint(firstbitlow(word));
+            int projection = planeOffset
+                           + int(index & 3u) * outward.x
+                           + int((index >> 2u) & 3u) * outward.y
+                           + int(index >> 4u) * outward.z;
+            if (projection > 0)
+                return true;
+            word &= word - 1u;
+        }
+    }
+    return false;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchID : SV_DispatchThreadID) {
@@ -29,7 +87,6 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
 
     int2 pixel = int2(dispatchID.xy);
     float4 albedo = albedoImage[pixel];
-    
     int4 hitPosition = positionImage[pixel];
 
     if (hitPosition.w == 0) {
@@ -67,9 +124,12 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
     for (uint i = 0u; i < 6u; ++i) {
         int3 adjacentLocal = localVoxel + directions[i];
         uint64_t solid = currentSolid;
+        LightProbeAddress adjacentAddress = currentAddress;
 
         if (any(adjacentLocal < int3(0)) || any(adjacentLocal >= int3(4))) {
-            LightProbeAddress adjacentAddress = manager.GetProbeAddress(voxelPosition + directions[i]);
+            adjacentAddress = manager.GetProbeAddress(
+                voxelPosition + directions[i]
+            );
 
             solid = 0ull;
             if (adjacentAddress.valid && adjacentAddress.chunkIndex < chunkCount) {
@@ -86,6 +146,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
 
     bool hasOutward = dot(outward, outward) > 0.0;
 
+    // Trilinear coordinates relative to probe centers.
     float3 probeGrid = voxelCenter / float(LIGHT_PROBE_SPACING) - 0.5;
     int3 baseProbe = int3(floor(probeGrid));
     float3 blend = frac(probeGrid);
@@ -103,41 +164,31 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         if (weight <= 0.0)
             continue;
 
-        float3 probeCenter = (float3(neighbor) + 0.5) * float(LIGHT_PROBE_SPACING);
+        int3 probeBase = neighbor * int(LIGHT_PROBE_SPACING);
 
-        if (hasOutward && dot(probeCenter - voxelCenter, outward) < 0.0)
-            continue;
-
-        LightProbeAddress address = manager.GetProbeAddress(
-            neighbor * int(LIGHT_PROBE_SPACING)
-        );
+        LightProbeAddress address = manager.GetProbeAddress(probeBase);
         if (!address.valid || address.chunkIndex >= chunkCount)
             continue;
 
-        LightProbe probe =
-            manager.lightChunks[address.chunkIndex].probes[address.probeIndex];
+        LightProbe probe = manager.lightChunks[address.chunkIndex].probes[address.probeIndex];
         if (probe.solid == 0xFFFFFFFFFFFFFFFFull)
             continue;
-        
-        uint normalIndex = probe.GetNormal();
-        if (hasOutward && normalIndex < 26u) {
-            float3 probeNormal = float3(DecodeNormal26(normalIndex));
-            if (dot(probeNormal, outward) < 0.0)
-                continue;
-        }
 
-        lightingSum += (float3(probe.GetLight())) * weight;
+        if (hasOutward && !CombineHasOutwardAir(probe.solid, probeBase - voxelPosition, int3(outward)))
+            continue;
+
+        float3 probeLight = probe.GetLight();
+        if (!all(isfinite(probeLight)))
+            continue;
+
+        lightingSum += probeLight * weight;
         totalWeight += weight;
     }
-    float3 lighting = totalWeight > 0.0
-        ? lightingSum / totalWeight
-        : float3(0);
+
+    float3 lighting = totalWeight > 0.0 ? lightingSum / totalWeight : float3(0);
 
     float exposure = 1.0;
-
     float3 hdr = max(albedo.rgb * lighting, float3(0)) * exposure;
-
     float3 mapped = hdr / (float3(1.0) + hdr);
-
     displayImage[pixel] = float4(mapped, albedo.a);
 }

@@ -1,10 +1,12 @@
 #include "voxelmanager.h"
 
 #include "glm/common.hpp"
+#include <glm/glm.hpp>
 #include <unordered_set>
 #include <sstream>
 
 #include "fixedstack/fixedstack.hpp"
+
 
 void VoxelManager::Init() {
     contree_headers.reserve(10);
@@ -15,6 +17,10 @@ void VoxelManager::Init() {
 
 void VoxelManager::Process() {
 
+}
+
+void VoxelManager::PostProcess() {
+    CleanContreeNodes();
 }
 
 void VoxelManager::Shutdown() {
@@ -39,6 +45,10 @@ uint32_t VoxelManager::AllocateContreeNode() {
     contree_headers[data_index].isSolidMask = 0;
     contree_data[data_index] = {};
     
+    dirty_contree_nodes.resize(contree_data.size()/64+1);
+
+    DirtyContreeNode(data_index);
+
     return data_index;
 }
 
@@ -51,7 +61,6 @@ void VoxelManager::FreeContreeNode(uint32_t root) {
             FreeContreeNode(contree_data[root].GetPtr(i));
         }
     }
-
     contree_headers[root].isVoxelMask = CONTREE_VOXEL_MASK_FULL;
     contree_headers[root].isSolidMask = 0;
     free_contree_indicies.push_back(root);
@@ -141,11 +150,14 @@ void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
             uint32_t new_node_index = AllocateContreeNode();
             ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
             node.SetPtr(child_node_index, new_node_index);
-            
+            DirtyContreeNode(node_index);
+
+            ContreeNode new_node{&contree_headers[new_node_index], &contree_data[new_node_index]};
             for (uint8_t i = 0; i < ContreeNode::WIDTH*ContreeNode::WIDTH*ContreeNode::WIDTH; i++) {
-                ContreeNode new_node{&contree_headers[new_node_index], &contree_data[new_node_index]};
                 new_node.SetVoxel(i, child_node_voxel); // fill new node with voxel data from parent
             }
+
+            DirtyContreeNode(new_node_index);
         }
 
         stack.push({node_index, child_node_index});
@@ -156,6 +168,7 @@ void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
 
     ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
     node.SetVoxel(child_node_index, voxel);
+    DirtyContreeNode(node_index);
 
     ContreeNode current_node = {&contree_headers[node_index], &contree_data[node_index]};
 
@@ -173,6 +186,7 @@ void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
         parent_node = {&contree_headers[parent_info.node_index], &contree_data[parent_info.node_index]};
 
         parent_node.SetVoxel(parent_info.child_index, voxel_value);
+        DirtyContreeNode(parent_info.node_index);
 
         current_node = {&contree_headers[parent_info.node_index], &contree_data[parent_info.node_index]};
     }
@@ -201,10 +215,10 @@ Voxel VoxelManager::GetVoxel(uint32_t chunk, glm::uvec3 position) {
 
 void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
     glm::ivec3 fill_start = glm::min(start_position, end_position);
-    glm::ivec3 fill_end   = glm::max(start_position, end_position); // inclusive last voxel
+    glm::ivec3 fill_end   = glm::max(start_position, end_position);
 
     glm::ivec3 chunk_start = GetChunkPosition(fill_start);
-    glm::ivec3 chunk_end   = GetChunkPosition(fill_end) + 1; // +1 just to make the loop bound exclusive
+    glm::ivec3 chunk_end = GetChunkPosition(fill_end) + 1;
 
     for (int32_t cx = chunk_start.x; cx < chunk_end.x; ++cx) {
         for (int32_t cy = chunk_start.y; cy < chunk_end.y; ++cy) {
@@ -217,35 +231,32 @@ void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position
     }
 }
 
-bool Intersects(glm::ivec3 aMin, glm::ivec3 aMax,
-                 glm::ivec3 bMin, glm::ivec3 bMax)
-{
+bool Intersects(glm::ivec3 aMin, glm::ivec3 aMax, glm::ivec3 bMin, glm::ivec3 bMax) {
     return
         aMin.x <= bMax.x && aMax.x >= bMin.x &&
         aMin.y <= bMax.y && aMax.y >= bMin.y &&
         aMin.z <= bMax.z && aMax.z >= bMin.z;
 }
 
-bool FullyContains(glm::ivec3 outerMin, glm::ivec3 outerMax,
-                    glm::ivec3 innerMin, glm::ivec3 innerMax)
-{
+bool FullyContains(glm::ivec3 outerMin, glm::ivec3 outerMax, glm::ivec3 innerMin, glm::ivec3 innerMax) {
     return
         innerMin.x >= outerMin.x && innerMax.x <= outerMax.x &&
         innerMin.y >= outerMin.y && innerMax.y <= outerMax.y &&
         innerMin.z >= outerMin.z && innerMax.z <= outerMax.z;
 }
 
-// Sets every cell of a node to the same voxel, without further subdivision.
 void VoxelManager::FillNodeUniform(uint32_t node_index, Voxel voxel) {
     glm::uvec3 i;
     for (i.x = 0; i.x < ContreeNode::WIDTH; i.x++)
         for (i.y = 0; i.y < ContreeNode::WIDTH; i.y++)
             for (i.z = 0; i.z < ContreeNode::WIDTH; i.z++) {
                 uint16_t index = ContreeNode::GetIndex(i);
-                if (!contree_headers[node_index].IsVoxel(index)) FreeContreeNode(contree_data[node_index].GetPtr(index));
+                if (!contree_headers[node_index].IsVoxel(index))
+                    FreeContreeNode(contree_data[node_index].GetPtr(index));
                 ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
                 node.SetVoxel(index, voxel);
             }
+    DirtyContreeNode(node_index);
 }
 
 void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 node_position, glm::ivec3 start_position, glm::ivec3 end_position, Voxel voxel) {
@@ -269,6 +280,7 @@ void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 nod
                     if (!contree_headers[node_index].IsVoxel(index)) FreeContreeNode(contree_data[node_index].GetPtr(index));
                     ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
                     node.SetVoxel(index, voxel);
+                    DirtyContreeNode(node_index);
                     continue;
                 }
 
@@ -279,6 +291,7 @@ void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 nod
                         uint32_t child = AllocateContreeNode();
                         ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
                         node.SetPtr(index, child);
+                        DirtyContreeNode(node_index);
                         FillNodeUniform(child, existing);
                     }
                     FillVoxels(contree_data[node_index].GetPtr(index), depth + 1, child_pos, start_position, end_position, voxel);
@@ -286,12 +299,12 @@ void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 nod
                     if (!contree_headers[node_index].IsVoxel(index)) FreeContreeNode(contree_data[node_index].GetPtr(index));
                     ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
                     node.SetVoxel(index, voxel);
+                    DirtyContreeNode(node_index);
                 }
             }
         }
     }
 }
-
 
 void VoxelManager::GenerateChunkOccupancyMap() {
     if (allocated_chunks.empty()) {
@@ -324,7 +337,7 @@ void VoxelManager::GenerateChunkOccupancyMap() {
     }
     
     chunk_occupancy.position = min;
-    printf("%d, %d, %d", chunk_occupancy.position.x, chunk_occupancy.position.y, chunk_occupancy.position.z);
+    
     // Fill map with empty entries
     for (size_t i = 0; i < newSize; ++i) {
         chunk_occupancy.chunks[i] = POINTER_EMPTY;
@@ -342,6 +355,18 @@ void VoxelManager::GenerateChunkOccupancyMap() {
             local.z * gridSize.x * gridSize.y;
 
         chunk_occupancy.chunks[index] = i;
+    }
+}
+
+void VoxelManager::DirtyContreeNode(uint32_t node_index) {
+    uint32_t page_index = node_index / 64;
+    uint32_t bit_index  = node_index % 64;
+    dirty_contree_nodes[page_index] |= (1ull << bit_index);
+}
+
+void VoxelManager::CleanContreeNodes() {
+    for (uint64_t &clean : dirty_contree_nodes) {
+        clean = 0;
     }
 }
 

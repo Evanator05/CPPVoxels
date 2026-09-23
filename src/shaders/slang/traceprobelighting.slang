@@ -270,8 +270,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
     if (address.chunkIndex >= chunkCount)
         return;
 
-    LightProbe probe =
-        manager.lightChunks[address.chunkIndex].probes[address.probeIndex];
+    LightProbe probe = manager.lightChunks[address.chunkIndex].probes[address.probeIndex];
 
     float3 history = probe.GetLight();
 
@@ -281,9 +280,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         (address.probeIndex >> 8u) & 15u
     );
 
-    int3 probeBase =
-        manager.lightChunks[address.chunkIndex].position * int(Chunk::WIDTH)
-        + int3(coordinate) * int(LIGHT_PROBE_SPACING);
+    int3 probeBase = manager.lightChunks[address.chunkIndex].position * int(Chunk::WIDTH) + int3(coordinate) * int(LIGHT_PROBE_SPACING);
 
     uint2 emptyMask = uint2(
         ~uint(probe.solid),
@@ -347,8 +344,22 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         lighting /= float(PROBE_LIGHTING_SAMPLES);
     }
 
-    float3 accumulated = lerp(history, lighting, PL_HISTORY_RATE);
+    uint currentFrame = uint(camera.frame) + 1u;
+
+    float historyRate = 1.0;
+
+    if (probe.lastSeenFrame != 0u) {
+        uint elapsedFrames = currentFrame - probe.lastSeenFrame;
+        uint missedFrames = elapsedFrames > 1u ? elapsedFrames - 1u : 0u;
+
+        historyRate = min(PL_HISTORY_RATE * (1.0 + float(missedFrames) / 300.0), 0.05);
+    }
+
+    float3 accumulated = probe.lastSeenFrame == 0u ? lighting : lerp(history, lighting, historyRate);
 
     manager.SetLight(address, accumulated);
+
+    manager.lightChunks[address.chunkIndex].probes[address.probeIndex].lastSeenFrame = currentFrame;
+
     manager.DeactivateProbe(probeBase);
 }
