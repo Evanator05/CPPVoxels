@@ -49,6 +49,8 @@ foreach(SLANG_SRC ${SLANG_SRC_FILES})
             -target spirv
             -profile spirv_1_3
             -emit-spirv-directly
+            -O3
+            -fp-mode fast
             -source-embed-style u32
             -source-embed-name ${VAR_NAME}
             -o ${HDR}

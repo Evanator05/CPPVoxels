@@ -19,7 +19,20 @@ class Buffer : public Resource<SDL_GPUBuffer> {
 
         void Upload(SDL_GPUCopyPass *pass, SDL_GPUTransferBuffer *transfer_buffer, size_t transfer_start, size_t gpu_start, size_t size);
         void Upload(void *source, size_t cpu_start, size_t gpu_start, size_t size);
-        void Download(void *dest, size_t cpu_start, size_t gpu_start, size_t size);
+        void Download(
+            SDL_GPUCopyPass *pass,
+            SDL_GPUTransferBuffer *transfer_buffer,
+            size_t transfer_start,
+            size_t gpu_start,
+            size_t size
+        );
+
+        void Download(
+            void *dest,
+            size_t cpu_start,
+            size_t gpu_start,
+            size_t size
+        );
 
         void SetSize(size_t size);
         size_t GetSize();
@@ -56,12 +69,33 @@ class TypedBuffer : public Buffer {
             Upload(data.data(), index, count);
         }
 
-        void Download(T *out, size_t count, size_t elementOffset = 0) {
-            Buffer::Download((void*)out, 0, elementOffset * sizeof(T), count * sizeof(T));
+        void Download(
+            SDL_GPUCopyPass *pass,
+            SDL_GPUTransferBuffer *transfer_buffer,
+            size_t transfer_start,
+            size_t index,
+            size_t count
+        ) {
+            Buffer::Download(
+                pass,
+                transfer_buffer,
+                transfer_start,
+                index * sizeof(T),
+                count * sizeof(T)
+            );
         }
 
-        void Download(std::vector<T> &out, size_t elementOffset = 0) {
-            Download(out.data(), out.size(), elementOffset);
+        void Download(T *out, size_t count, size_t index = 0) {
+            Buffer::Download(
+                out,
+                0,
+                index * sizeof(T),
+                count * sizeof(T)
+            );
+        }
+
+        void Download(std::vector<T> &out, size_t index = 0) {
+            Download(out.data(), out.size(), index);
         }
 
         void SetSize(size_t elementCount) {

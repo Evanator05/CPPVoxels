@@ -4,7 +4,9 @@
 
 #include <vector>
 #include <functional>
-
+#include <unordered_set>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 #include "glm/vec3.hpp"
 
 #include "voxel.h"
@@ -63,6 +65,9 @@ class VoxelManager : public EngineModule {
         void DirtyContreeNode(uint32_t node_index);
         void CleanContreeNodes();
 
+        void DirtyChunk(glm::ivec3 position);
+        void CleanChunks();
+
         size_t GetChunkDataAllocatedBytes(void) const; // returns allocated data byte count
 
         std::vector<ContreeHeader> contree_headers{};
@@ -70,10 +75,14 @@ class VoxelManager : public EngineModule {
         std::vector<Chunk> allocated_chunks{};
         ChunkPositions chunk_occupancy{};
 
-        std::vector<uint64_t> dirty_contree_nodes{};
-        bool chunks_dirty = false;
+        std::vector<uint64_t> dirty_contree_flags{};
+        std::vector<uint32_t> dirty_contree_indices{};
+
+        std::unordered_set<glm::ivec3> dirty_chunk_positions;
+
+        bool chunk_occupancy_dirty = false;
     private:
-        std::vector<uint32_t> free_contree_indicies{};  
+        std::vector<uint32_t> free_contree_indices{};  
 };
 
 #include "voxelmanager_sdf.inl"

@@ -68,34 +68,84 @@ void Buffer::Upload(void *source, size_t cpu_start, size_t gpu_start, size_t siz
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 
-void Buffer::Download(void *dest, size_t cpu_start, size_t gpu_start, size_t size) {
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
-    SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
+void Buffer::Download(
+    SDL_GPUCopyPass *pass,
+    SDL_GPUTransferBuffer *transfer_buffer,
+    size_t transfer_start,
+    size_t gpu_start,
+    size_t size
+) {
+    SDL_GPUBufferRegion source{};
+    source.buffer = gpu_resource;
+    source.offset = static_cast<Uint32>(gpu_start);
+    source.size = static_cast<Uint32>(size);
+
+    SDL_GPUTransferBufferLocation destination{};
+    destination.transfer_buffer = transfer_buffer;
+    destination.offset = static_cast<Uint32>(transfer_start);
+
+    SDL_DownloadFromGPUBuffer(pass, &source, &destination);
+}
+
+void Buffer::Download(
+    void *dest,
+    size_t cpu_start,
+    size_t gpu_start,
+    size_t size
+) {
+    if (size == 0)
+        return;
 
     SDL_GPUTransferBufferCreateInfo tbci{};
     tbci.size = static_cast<Uint32>(size);
     tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
-    SDL_GPUTransferBuffer *transferBuffer = SDL_CreateGPUTransferBuffer(device, &tbci);
 
-    SDL_GPUBufferRegion tsource{};
-    tsource.buffer = gpu_resource;
-    tsource.offset = static_cast<Uint32>(gpu_start);
-    tsource.size = static_cast<Uint32>(size);
+    SDL_GPUTransferBuffer *transferBuffer =
+        SDL_CreateGPUTransferBuffer(device, &tbci);
 
-    SDL_GPUTransferBufferLocation tdestination{};
-    tdestination.transfer_buffer = transferBuffer;
-    tdestination.offset = 0;
+    if (!transferBuffer)
+        return;
 
-    SDL_DownloadFromGPUBuffer(pass, &tsource, &tdestination);
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
 
-    uint8_t *mapped = (uint8_t*)SDL_MapGPUTransferBuffer(device, transferBuffer, false);
-    memcpy((uint8_t*)dest + cpu_start, mapped, size);
-    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    if (!cmd) {
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+        return;
+    }
 
-    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
+
+    if (!pass) {
+        SDL_CancelGPUCommandBuffer(cmd);
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+        return;
+    }
+
+    Download(pass, transferBuffer, 0, gpu_start, size);
 
     SDL_EndGPUCopyPass(pass);
-    SDL_SubmitGPUCommandBuffer(cmd);
+
+    SDL_GPUFence *fence =
+        SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+
+    if (!fence) {
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+        return;
+    }
+
+    if (SDL_WaitForGPUFences(device, true, &fence, 1)) {
+        uint8_t *mapped = static_cast<uint8_t*>(
+            SDL_MapGPUTransferBuffer(device, transferBuffer, false)
+        );
+
+        if (mapped) {
+            memcpy(static_cast<uint8_t*>(dest) + cpu_start, mapped, size);
+            SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+        }
+    }
+
+    SDL_ReleaseGPUFence(device, fence);
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
 }
 
 void Buffer::SetSize(size_t size) {

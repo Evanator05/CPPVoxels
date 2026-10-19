@@ -146,7 +146,6 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
 
     bool hasOutward = dot(outward, outward) > 0.0;
 
-    // Trilinear coordinates relative to probe centers.
     float3 probeGrid = voxelCenter / float(LIGHT_PROBE_SPACING) - 0.5;
     int3 baseProbe = int3(floor(probeGrid));
     float3 blend = frac(probeGrid);

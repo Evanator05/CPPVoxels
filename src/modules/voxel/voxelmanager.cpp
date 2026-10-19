@@ -11,7 +11,7 @@
 void VoxelManager::Init() {
     contree_headers.reserve(10);
     contree_data.reserve(10);
-    free_contree_indicies.reserve(10);
+    free_contree_indices.reserve(10);
     allocated_chunks.reserve(10);
 }
 
@@ -21,31 +21,32 @@ void VoxelManager::Process() {
 
 void VoxelManager::PostProcess() {
     CleanContreeNodes();
+    CleanChunks();
 }
 
 void VoxelManager::Shutdown() {
     delete[] chunk_occupancy.chunks;
     contree_data.reserve(0);
-    free_contree_indicies.reserve(0);
+    free_contree_indices.reserve(0);
     allocated_chunks.reserve(0);
 }
 
 uint32_t VoxelManager::AllocateContreeNode() {
     uint32_t data_index;
-    if (free_contree_indicies.empty()) {
+    if (free_contree_indices.empty()) {
         contree_headers.push_back({});
         contree_data.push_back({});
         data_index = static_cast<uint32_t>(contree_headers.size() - 1);
     } else {
-        data_index = free_contree_indicies.back();
-        free_contree_indicies.pop_back();
+        data_index = free_contree_indices.back();
+        free_contree_indices.pop_back();
     }
     contree_headers[data_index] = {};
     contree_headers[data_index].isVoxelMask = CONTREE_VOXEL_MASK_FULL;
     contree_headers[data_index].isSolidMask = 0;
     contree_data[data_index] = {};
     
-    dirty_contree_nodes.resize(contree_data.size()/64+1);
+    dirty_contree_flags.resize(contree_data.size()/64+1);
 
     DirtyContreeNode(data_index);
 
@@ -63,7 +64,7 @@ void VoxelManager::FreeContreeNode(uint32_t root) {
     }
     contree_headers[root].isVoxelMask = CONTREE_VOXEL_MASK_FULL;
     contree_headers[root].isSolidMask = 0;
-    free_contree_indicies.push_back(root);
+    free_contree_indices.push_back(root);
 }
 
 uint32_t VoxelManager::AllocateChunk(const glm::ivec3 position) {
@@ -72,6 +73,7 @@ uint32_t VoxelManager::AllocateChunk(const glm::ivec3 position) {
         //CHUNK_FLAG_EXISTS,
         AllocateContreeNode()
     });
+    DirtyChunk(position);
     return allocated_chunks.size() - 1;
 }
 
@@ -112,6 +114,7 @@ void VoxelManager::SetVoxel(glm::ivec3 world_position, Voxel voxel) {
     uint32_t chunk_index = GetChunkIndex(chunk_position);
     if (chunk_index == POINTER_EMPTY) return;
     SetVoxel(chunk_index, local_position, voxel);
+    DirtyChunk(chunk_position);
 }
 
 Voxel VoxelManager::GetVoxel(glm::ivec3 world_position) {
@@ -226,6 +229,7 @@ void VoxelManager::FillVoxels(glm::ivec3 start_position, glm::ivec3 end_position
                 uint32_t c = GetChunkIndex(glm::ivec3(cx, cy, cz));
                 if (c == POINTER_EMPTY) continue;
                 FillVoxels(allocated_chunks[c].contree_node, 1, allocated_chunks[c].position * glm::ivec3(Chunk::WIDTH), fill_start, fill_end, voxel);
+                DirtyChunk(allocated_chunks[c].position);
             }
         }
     }
@@ -361,13 +365,28 @@ void VoxelManager::GenerateChunkOccupancyMap() {
 void VoxelManager::DirtyContreeNode(uint32_t node_index) {
     uint32_t page_index = node_index / 64;
     uint32_t bit_index  = node_index % 64;
-    dirty_contree_nodes[page_index] |= (1ull << bit_index);
+    uint64_t mask = 1ull << bit_index;
+
+    if (dirty_contree_flags[page_index] & mask)
+        return;
+
+    dirty_contree_flags[page_index] |= mask;
+    dirty_contree_indices.push_back(node_index);
 }
 
 void VoxelManager::CleanContreeNodes() {
-    for (uint64_t &clean : dirty_contree_nodes) {
-        clean = 0;
+    for (uint32_t node_index : dirty_contree_indices) {
+        dirty_contree_flags[node_index/64] = 0;
     }
+    dirty_contree_indices.clear();
+}
+
+void VoxelManager::DirtyChunk(glm::ivec3 position) {
+    dirty_chunk_positions.insert(position);
+}
+
+void VoxelManager::CleanChunks() {
+    dirty_chunk_positions.clear();
 }
 
 size_t VoxelManager::GetChunkDataAllocatedBytes() const {

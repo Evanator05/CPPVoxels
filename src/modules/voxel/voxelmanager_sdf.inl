@@ -169,6 +169,7 @@ void VoxelManager::FillSDF(Voxel voxel, SDF&& sdf, glm::ivec3 sdf_min, glm::ivec
                 if (c == POINTER_EMPTY)
                     continue;
                 FillSDFRoot(allocated_chunks[c].contree_node, glm::vec3(p) * float(Chunk::WIDTH), voxel, sdf);
+                DirtyChunk(p);
             }
         }
     }

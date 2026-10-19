@@ -1,4 +1,5 @@
 #include "testgeneration.h"
+#include "filesystem.h"
 #include "glm/vec3.hpp"
 #include "glm/vec2.hpp"
 #include "glm/mat3x3.hpp"
@@ -10,7 +11,8 @@
 #include <vector>
 #include <unordered_set>
 
-#include <fstream>
+#include <exception>
+#include <limits>
 #include <vector>
 #include "ogt_vox.h"
 namespace Generator {
@@ -3224,48 +3226,55 @@ void LoadVoxFile(
     // LOAD VOX FILE
     // ============================================================
 
-    std::ifstream file(filename, std::ios::binary | std::ios::ate);
+    // FileSystem::Read() returns a reference-counted handle, so the
+    // bytes remain valid while the VOX scene is being parsed.
+    if (!filename || !*filename)
+    {
+        printf("Invalid VOX file path.\n");
+        return;
+    }
 
-if (!file)
-{
-    printf("Failed to open VOX file: %s\n", filename);
-    return;
-}
+    FileHandle file;
 
-const std::streamsize fileSize = file.tellg();
+    try
+    {
+        file = vm.GetModule<FileSystem>().Read(filename);
+    }
+    catch (const std::exception& error)
+    {
+        printf("Failed to read VOX file '%s': %s\n", filename, error.what());
+        return;
+    }
 
-if (fileSize <= 0)
-{
-    printf("VOX file is empty: %s\n", filename);
-    return;
-}
+    if (!file)
+    {
+        printf("VOX file not bound: %s\n", filename);
+        return;
+    }
 
-file.seekg(0, std::ios::beg);
+    if (file.size == 0)
+    {
+        printf("VOX file is empty: %s\n", filename);
+        return;
+    }
 
-std::vector<uint8_t> fileData(
-    static_cast<size_t>(fileSize)
-);
+    // ogt_vox_read_scene() accepts a 32-bit byte count.
+    if (file.size > std::numeric_limits<uint32_t>::max())
+    {
+        printf("VOX file is too large: %s\n", filename);
+        return;
+    }
 
-if (!file.read(
-        reinterpret_cast<char*>(fileData.data()),
-        fileSize
-    ))
-{
-    printf("Failed to read VOX file: %s\n", filename);
-    return;
-}
-
-const ogt_vox_scene* scene =
-    ogt_vox_read_scene(
-        fileData.data(),
-        static_cast<uint32_t>(fileData.size())
+    const ogt_vox_scene* scene = ogt_vox_read_scene(
+        file.data,
+        static_cast<uint32_t>(file.size)
     );
 
-if (!scene)
-{
-    printf("Failed to parse VOX file: %s\n", filename);
-    return;
-}
+    if (!scene)
+    {
+        printf("Failed to parse VOX file: %s\n", filename);
+        return;
+    }
 
 
     printf(

@@ -6,6 +6,9 @@
 #include "input.h"
 #include "console.h"
 #include "modules/voxel/voxelmanager.h"
+#include "filesystem.h"
+
+#include "skyislandgeneration.h"
 
 #include "shaders/depth.h"
 #include "shaders/upscale.h"
@@ -21,7 +24,7 @@
 void VoxelRenderer::Init() {
     Window &window = GetModule<Window>();
     Renderer &renderer = GetModule<Renderer>();
-
+    
     device = renderer.GetDevice();
     
     Texture *display = renderer.CreateResource<Texture>();
@@ -55,15 +58,10 @@ void VoxelRenderer::Init() {
     fullDepth->Create();
 
     VoxelManager &vm = GetModule<VoxelManager>();
-    Generator::LoadVoxFile(vm, "castle.vox");
-    //Generator::GenerateCaves(vm);
-    Voxel v;
-    v.set_rgb(31, 31, 5);
-    v.set_solid(true);
-    v.set_type(Voxel::Type::Emissive);
-    v.set_payload(31);
-    vm.FillVoxels(glm::ivec3(-24, 162, 108), glm::ivec3(-24-10, 157-5, 108+40), v);
     
+    //Generator::GenerateCaves(vm);
+    //Generator::GenerateWorld(vm);
+    //Generator::GenerateSkyIslands(vm, 8, 8, 8);
     CreateLightChunks();
 
     cameraTransformBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
@@ -261,11 +259,32 @@ void VoxelRenderer::Init() {
 
     cameraTransform.localPos = {0, 150, 0};
     vm.CleanContreeNodes();
+    vm.CleanChunks();
+    Input &input = GetModule<Input>();
+    input.CreateAction("RegenLighting");
+    input.CreateBinding("RegenLighting", SDLK_P);
+
 }
 
 void VoxelRenderer::Process() {
+    VoxelManager &vm = GetModule<VoxelManager>();
+
     UploadDirtyContreeNodes();
     cameraTransformBuffer->Upload(&cameraTransform, 0, 1);
+
+    for (const glm::ivec3& position : vm.dirty_chunk_positions) {
+        uint32_t chunk_index = vm.GetChunkIndex(position);
+
+        if (chunk_index == POINTER_EMPTY)
+            continue;
+        lightChunksBuffer->Download(&lightChunks[chunk_index], 1, chunk_index);
+        UpdateLightChunk(chunk_index);
+        lightChunksBuffer->Upload(lightChunks, chunk_index, 1);
+    }
+    
+    if (GetModule<Input>().IsPressed("RegenLighting")) {
+        CreateLightChunks();
+    }
 }
 
 void VoxelRenderer::Shutdown() {
@@ -504,18 +523,19 @@ void VoxelRenderer::EnsureUploadTransferBuffer(size_t required_size) {
 void VoxelRenderer::UploadDirtyContreeNodes() {
     VoxelManager& vm = GetModule<VoxelManager>();
 
-    if (contreeHeaderBuffer->GetSize() != vm.contree_headers.size() || contreeDataBuffer->GetSize() != vm.contree_data.size()) {
-        contreeHeaderBuffer->SetSize(vm.contree_headers.size());
-        contreeDataBuffer->SetSize(vm.contree_data.size());
+    if (contreeHeaderBuffer->GetSize() != vm.contree_headers.capacity() ||
+        contreeDataBuffer->GetSize() != vm.contree_data.capacity()) {
+
+        contreeHeaderBuffer->SetSize(vm.contree_headers.capacity());
+        contreeDataBuffer->SetSize(vm.contree_data.capacity());
+
         contreeHeaderBuffer->Upload(vm.contree_headers, 0, vm.contree_headers.size());
         contreeDataBuffer->Upload(vm.contree_data, 0, vm.contree_data.size());
+
         return;
     }
 
-    size_t dirty_count = 0;
-
-    for (uint64_t dirty : vm.dirty_contree_nodes)
-        dirty_count += std::popcount(dirty);
+    size_t dirty_count = vm.dirty_contree_indices.size();
 
     if (dirty_count == 0)
         return;
@@ -524,53 +544,36 @@ void VoxelRenderer::UploadDirtyContreeNodes() {
 
     EnsureUploadTransferBuffer(required_size);
 
-    uint8_t *mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, uploadTransferBuffer, true));
+    uint8_t* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, uploadTransferBuffer, true));
 
     size_t transfer_offset = 0;
 
-    for (uint32_t page_index = 0; page_index < vm.dirty_contree_nodes.size(); ++page_index) {
-        uint64_t dirty = vm.dirty_contree_nodes[page_index];
+    for (uint32_t node_index : vm.dirty_contree_indices) {
+        if (node_index >= vm.contree_headers.size())
+            continue;
 
-        while (dirty) {
-            uint32_t bit_index = std::countr_zero(dirty);
-            uint32_t node_index = page_index * 64 + bit_index;
-
-            if (node_index >= vm.contree_headers.size())
-                break;
-
-            memcpy(mapped + transfer_offset, &vm.contree_headers[node_index], sizeof(ContreeHeader));
-            transfer_offset += sizeof(ContreeHeader);
-            memcpy(mapped + transfer_offset, &vm.contree_data[node_index], sizeof(ContreeData));
-            transfer_offset += sizeof(ContreeData);
-
-            dirty &= dirty - 1;
-        }
+        memcpy(mapped + transfer_offset, &vm.contree_headers[node_index], sizeof(ContreeHeader));
+        transfer_offset += sizeof(ContreeHeader);
+        memcpy(mapped + transfer_offset, &vm.contree_data[node_index], sizeof(ContreeData));
+        transfer_offset += sizeof(ContreeData);
     }
 
     SDL_UnmapGPUTransferBuffer(device, uploadTransferBuffer);
 
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(device);
-    SDL_GPUCopyPass *copy_pass = SDL_BeginGPUCopyPass(cmd);
-
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
     transfer_offset = 0;
 
-    for (uint32_t page_index = 0; page_index < vm.dirty_contree_nodes.size(); ++page_index) {
-        uint64_t dirty = vm.dirty_contree_nodes[page_index];
-        while (dirty) {
-            uint32_t bit_index = std::countr_zero(dirty);
-            uint32_t node_index = page_index * 64 + bit_index;
+    for (uint32_t node_index : vm.dirty_contree_indices) {
+        if (node_index >= vm.contree_headers.size())
+            continue;
 
-            if (node_index >= vm.contree_headers.size())
-                break;
-
-            contreeHeaderBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
-            transfer_offset += sizeof(ContreeHeader);
-            contreeDataBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
-            transfer_offset += sizeof(ContreeData);
-
-            dirty &= dirty - 1;
-        }
+        contreeHeaderBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
+        transfer_offset += sizeof(ContreeHeader);
+        contreeDataBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
+        transfer_offset += sizeof(ContreeData);
     }
+
     SDL_EndGPUCopyPass(copy_pass);
     SDL_SubmitGPUCommandBuffer(cmd);
 }

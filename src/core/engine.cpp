@@ -3,6 +3,7 @@
 
 #include "engine.h"
 
+#include "filesystem.h"
 #include "deltatime.h"
 #include "window.h"
 #include "input.h"
@@ -16,6 +17,7 @@
 #include "test.h"
 
 Engine::Engine() {
+    AddModule<FileSystem>();
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();

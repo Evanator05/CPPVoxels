@@ -6,7 +6,8 @@
 
 #include "modules/voxel/voxelmanager.h"
 #include "modules/voxelrenderer/voxelrenderer.h"
-
+#include "modules/voxelrenderer/testgeneration.h"
+#include "filesystem.h"
 #include "glm/glm.hpp"
 
 #include <cmath>
@@ -15,15 +16,13 @@
 #include <string>
 
 
-void Test::Print(std::string output)
-{
+void Test::Print(std::string output) {
     Console &console = GetModule<Console>();
     console.Log(output, Console::LogLevel::Info);
 }
 
 
-void printBinary(uint64_t value)
-{
+void printBinary(uint64_t value) {
     for (int i = 63; i >= 0; i--)
         printf("%llu", (value >> i) & 1ULL);
 
@@ -31,8 +30,7 @@ void printBinary(uint64_t value)
 }
 
 
-void Test::Init()
-{
+void Test::Init() {
     Console &console = GetModule<Console>();
 
     console.CreateCommand(
@@ -42,11 +40,23 @@ void Test::Init()
             Print(output);
         }
     );
+
+    FileSystem &fs = GetModule<FileSystem>();
+    VoxelManager &vm = GetModule<VoxelManager>();
+
+    // create test.pack to use from now on
+    //fs.BindFolder("assets");
+    //fs.SavePack("test.pack");
+
+    fs.BindPack("test.pack");
+    Generator::LoadVoxFile(vm, "assets/castle.vox");
+
+    
+
 }
 
 
-void Test::Process()
-{
+void Test::Process() {
     Input &input = GetModule<Input>();
     Console &console = GetModule<Console>();
     VoxelRenderer &vr = GetModule<VoxelRenderer>();
@@ -54,22 +64,13 @@ void Test::Process()
 
     const float deltaTime = GetModule<DeltaTime>().Get();
 
-    // ============================================================
-    // Cursor lock
-    // ============================================================
-
     static bool cursorLocked = false;
 
-    if (input.IsPressed("lock_cursor"))
-    {
+    if (input.IsPressed("lock_cursor")) {
         cursorLocked = !cursorLocked;
         input.SetMouseLock(cursorLocked);
     }
 
-
-    // ============================================================
-    // Camera
-    // ============================================================
 
     float moveSpeed = 50.0f;
 
@@ -78,18 +79,12 @@ void Test::Process()
 
     vr.cameraTransform.time += deltaTime;
 
-
-    // ------------------------------------------------------------
-    // Camera rotation
-    // ------------------------------------------------------------
-
     static float yaw = 0.0f;
     static float pitch = 0.0f;
 
     constexpr float lookSpeed = 1.25f;
 
-    if (cursorLocked)
-    {
+    if (cursorLocked) {
         const float lookX =
             input.GetDelta("lookright", deltaTime) -
             input.GetDelta("lookleft", deltaTime);
@@ -102,15 +97,9 @@ void Test::Process()
         pitch += lookY * lookSpeed;
     }
 
-    constexpr float pitchLimit =
-        glm::half_pi<float>() - 0.001f;
+    constexpr float pitchLimit = glm::half_pi<float>() - 0.001f;
 
-    pitch = glm::clamp(
-        pitch,
-        -pitchLimit,
-        pitchLimit
-    );
-
+    pitch = glm::clamp(pitch, -pitchLimit, pitchLimit);
 
     glm::vec3 forward;
 
@@ -118,42 +107,19 @@ void Test::Process()
     forward.y = std::sin(pitch);
     forward.z = std::cos(pitch) * std::cos(yaw);
 
-
-    const glm::vec3 worldUp(
-        0.0f,
-        1.0f,
-        0.0f
-    );
-
-    const glm::vec3 right =
-        glm::normalize(
-            glm::cross(worldUp, forward)
-        );
-
-    const glm::vec3 up =
-        glm::normalize(
-            glm::cross(forward, right)
-        );
+    const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+    const glm::vec3 right = glm::normalize(glm::cross(worldUp, forward));
+    const glm::vec3 up = glm::normalize(glm::cross(forward, right));
 
 
     vr.cameraTransform.rotation0 = right;
     vr.cameraTransform.rotation1 = up;
     vr.cameraTransform.rotation2 = forward;
 
-
-    // ------------------------------------------------------------
-    // Camera movement
-    // ------------------------------------------------------------
-
     glm::vec3 movement(
-        input.GetStrength("right") -
-            input.GetStrength("left"),
-
-        input.GetStrength("up") -
-            input.GetStrength("down"),
-
-        input.GetStrength("forward") -
-            input.GetStrength("backward")
+        input.GetStrength("right") - input.GetStrength("left"),
+        input.GetStrength("up") - input.GetStrength("down"),
+        input.GetStrength("forward") - input.GetStrength("backward")
     );
 
 
@@ -170,118 +136,53 @@ void Test::Process()
         forward * movement.z;
 
 
-    vr.cameraTransform.localPos +=
-        worldMovement *
-        moveSpeed *
-        deltaTime;
-
+    vr.cameraTransform.localPos += worldMovement * moveSpeed * deltaTime;
     vr.cameraTransform.frame++;
 
-
-    // ============================================================
-    // Voxel editor state
-    // ============================================================
-
-    enum class EditShape
-    {
+    enum class EditShape {
         Cube,
         Sphere
     };
 
-
-    static EditShape editShape =
-        EditShape::Sphere;
-
+    static EditShape editShape = EditShape::Sphere;
     static bool addVoxels = true;
-
     static int editSize = 8;
-
-    static float editDistance =
-        10.0f;
-
-    static float editColor[3] =
-    {
-        1.0f,
-        1.0f,
-        1.0f
-    };
-
+    static float editDistance = 10.0f;
+    static float editColor[3] = { 1.0f, 1.0f, 1.0f };
     static int materialType = 0;
     static int materialProperty = 0;
 
-
-    // ============================================================
-    // Voxel editor UI
-    // ============================================================
-
-    ImGui::SetNextWindowSize(
-        ImVec2(340.0f, 0.0f),
-        ImGuiCond_FirstUseEver
-    );
-
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 0.0f), ImGuiCond_FirstUseEver);
     ImGui::Begin("Voxel Editor");
-
-
-    // ------------------------------------------------------------
-    // Edit mode
-    // ------------------------------------------------------------
-
     ImGui::TextDisabled("EDIT MODE");
     ImGui::Separator();
     ImGui::Spacing();
-
-
-    if (ImGui::RadioButton(
-            "Add Voxels",
-            addVoxels))
-    {
+    if (ImGui::RadioButton("Add Voxels", addVoxels))
         addVoxels = true;
-    }
 
     ImGui::SameLine();
 
-    if (ImGui::RadioButton(
-            "Delete Voxels",
-            !addVoxels))
-    {
+    if (ImGui::RadioButton("Delete Voxels", !addVoxels))
         addVoxels = false;
-    }
-
-
+    
     ImGui::Spacing();
     ImGui::Spacing();
-
-
-    // ------------------------------------------------------------
-    // Shape
-    // ------------------------------------------------------------
 
     ImGui::TextDisabled("SHAPE");
     ImGui::Separator();
     ImGui::Spacing();
 
-
-    if (ImGui::RadioButton(
-            "Sphere",
-            editShape == EditShape::Sphere))
-    {
+    if (ImGui::RadioButton("Sphere", editShape == EditShape::Sphere))
         editShape = EditShape::Sphere;
-    }
+    
 
     ImGui::SameLine();
 
-    if (ImGui::RadioButton(
-            "Cube",
-            editShape == EditShape::Cube))
-    {
+    if (ImGui::RadioButton("Cube", editShape == EditShape::Cube))
         editShape = EditShape::Cube;
-    }
-
-
+    
     ImGui::Spacing();
-
     ImGui::PushItemWidth(-1.0f);
-
     ImGui::SliderInt(
         "##VoxelSize",
         &editSize,
@@ -300,22 +201,14 @@ void Test::Process()
 
     ImGui::PopItemWidth();
 
-
     ImGui::Spacing();
     ImGui::Spacing();
-
-
-    // ------------------------------------------------------------
-    // Material
-    // ------------------------------------------------------------
 
     ImGui::TextDisabled("MATERIAL");
     ImGui::Separator();
     ImGui::Spacing();
 
-
-    if (addVoxels)
-    {
+    if (addVoxels) {
         ImGui::Text("Color");
 
         ImGui::ColorEdit3(
@@ -328,8 +221,7 @@ void Test::Process()
         ImGui::Spacing();
 
 
-        const char *materialTypes[] =
-        {
+        const char *materialTypes[] = {
             "Regular",
             "Emissive"
         };
@@ -364,49 +256,9 @@ void Test::Process()
         );
     }
 
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-
-    // ------------------------------------------------------------
-    // Status
-    // ------------------------------------------------------------
-
-    ImGui::TextDisabled("STATUS");
-    ImGui::Separator();
-    ImGui::Spacing();
-
-
-    ImGui::Text(
-        "Operation: %s",
-        addVoxels ? "Add" : "Delete"
-    );
-
-    ImGui::Text(
-        "Shape: %s",
-        editShape == EditShape::Sphere
-            ? "Sphere"
-            : "Cube"
-    );
-
-    ImGui::Text(
-        "Cursor: %s",
-        cursorLocked
-            ? "Locked"
-            : "Unlocked"
-    );
-
-
     ImGui::End();
 
-
-    // ============================================================
-    // Perform voxel edit
-    // ============================================================
-
-    if (input.IsHeld("edit"))
-    {
+    if (input.IsHeld("edit")) {
         Voxel voxel{};
 
         voxel.set_solid(addVoxels);
@@ -493,16 +345,16 @@ void Test::Process()
 
 
     // ============================================================
-    // Stats / FPS
+    // Stats / Performance
     // ============================================================
 
     static float elapsed = 0.0f;
     static uint32_t frames = 0;
     static int displayedFPS = 0;
+    static float displayedFrameTimeMS = 0.0f;
 
     elapsed += deltaTime;
     frames++;
-
 
     if (elapsed >= 0.1f)
     {
@@ -513,10 +365,12 @@ void Test::Process()
                 )
             );
 
+        displayedFrameTimeMS =
+            (elapsed / static_cast<float>(frames)) * 1000.0f;
+
         elapsed = 0.0f;
         frames = 0;
     }
-
 
     ImGui::Begin("Stats");
 
@@ -525,26 +379,11 @@ void Test::Process()
         displayedFPS
     );
 
+    ImGui::Text(
+        "Frame Time: %.3f ms",
+        displayedFrameTimeMS
+    );
+
     ImGui::Separator();
-
-    ImGui::Text(
-        "Position: %.2f  %.2f  %.2f",
-        vr.cameraTransform.localPos.x,
-        vr.cameraTransform.localPos.y,
-        vr.cameraTransform.localPos.z
-    );
-
-    ImGui::Text(
-        "Frame: %d",
-        vr.cameraTransform.frame
-    );
-
-    ImGui::Text(
-        "Cursor Locked: %s",
-        cursorLocked
-            ? "Yes"
-            : "No"
-    );
-
     ImGui::End();
 }
