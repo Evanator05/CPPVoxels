@@ -69,7 +69,7 @@ private:
         std::function<void(const std::vector<std::string>&)>
     > commands;
 
-    bool visible = true;
+    bool visible = false;
 
 private:
     template<typename T>

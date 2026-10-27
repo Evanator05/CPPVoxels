@@ -20,6 +20,66 @@
 #include "testgeneration.h"
 
 #include <bit>
+#include <algorithm>
+#include <functional>
+#include <limits>
+#include <stdexcept>
+
+namespace {
+    void RequireGPUOperation(bool success, const char* operation) {
+        if (!success)
+            throw std::runtime_error(std::string(operation) + ": " + SDL_GetError());
+    }
+
+    void GrowTransferBuffer(SDL_GPUDevice* device, SDL_GPUTransferBuffer*& buffer,
+                            size_t& capacity, size_t required, SDL_GPUTransferBufferUsage usage) {
+        const size_t limit = std::numeric_limits<Uint32>::max();
+        if (required > limit)
+            throw std::runtime_error("Voxel transfer exceeds SDL's buffer size limit");
+        if (buffer && required <= capacity)
+            return;
+
+        size_t new_capacity = std::max<size_t>(capacity, 1024 * 1024);
+        while (new_capacity < required)
+            new_capacity = new_capacity > limit / 2 ? limit : new_capacity * 2;
+
+        SDL_GPUTransferBufferCreateInfo info{};
+        info.usage = usage;
+        info.size = static_cast<Uint32>(new_capacity);
+        auto* replacement = SDL_CreateGPUTransferBuffer(device, &info);
+        RequireGPUOperation(replacement != nullptr, "Create voxel transfer buffer");
+        if (buffer)
+            SDL_ReleaseGPUTransferBuffer(device, buffer);
+        buffer = replacement;
+        capacity = new_capacity;
+    }
+
+    template<class Function>
+    void VisitRanges(std::vector<uint32_t>& indices, Function visit) {
+        std::sort(indices.begin(), indices.end());
+        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+        for (size_t i = 0; i < indices.size();) {
+            const uint32_t first = indices[i++];
+            size_t count = 1;
+            while (i < indices.size() && indices[i] == first + count) {
+                ++i;
+                ++count;
+            }
+            visit(first, count);
+        }
+    }
+
+    // Renderer::Process runs before VoxelRenderer::Process. Its executable
+    // resources provide a synchronization point before any voxel shader reads.
+    class VoxelUploadResource : public IExecutableResource {
+    public:
+        using IExecutableResource::IExecutableResource;
+        std::function<void()> synchronize;
+        void Create() override {}
+        void Destroy() override { synchronize = {}; }
+        void Execute(SDL_GPUCommandBuffer*) override { synchronize(); }
+    };
+}
 
 void VoxelRenderer::Init() {
     Window &window = GetModule<Window>();
@@ -59,10 +119,9 @@ void VoxelRenderer::Init() {
 
     VoxelManager &vm = GetModule<VoxelManager>();
     
-    //Generator::GenerateCaves(vm);
-    //Generator::GenerateWorld(vm);
-    //Generator::GenerateSkyIslands(vm, 8, 8, 8);
-    CreateLightChunks();
+    lightChunksBuffer = renderer.CreateResource<TypedBuffer<LightChunk>>();
+    lightChunksBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    lightChunksBuffer->SetSize(1);
 
     cameraTransformBuffer = renderer.CreateResource<TypedBuffer<CameraTransform>>();
     cameraTransformBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
@@ -71,33 +130,23 @@ void VoxelRenderer::Init() {
 
     contreeHeaderBuffer = renderer.CreateResource<TypedBuffer<ContreeHeader>>();
     contreeHeaderBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    contreeHeaderBuffer->SetSize(vm.contree_headers.size());
-    contreeHeaderBuffer->Create();
-    contreeHeaderBuffer->Upload(vm.contree_headers, 0, vm.contree_headers.size());
+    contreeHeaderBuffer->SetSize(std::max<size_t>(1, vm.contree_headers.capacity()));
 
     contreeDataBuffer = renderer.CreateResource<TypedBuffer<ContreeData>>();
     contreeDataBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    contreeDataBuffer->SetSize(vm.contree_data.size());
-    contreeDataBuffer->Create();
-    contreeDataBuffer->Upload(vm.contree_data, 0, vm.contree_data.size());
+    contreeDataBuffer->SetSize(std::max<size_t>(1, vm.contree_data.capacity()));
 
-    TypedBuffer<Chunk> *chunks = renderer.CreateResource<TypedBuffer<Chunk>>();
+    chunks = renderer.CreateResource<TypedBuffer<Chunk>>();
     chunks->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    chunks->SetSize(vm.allocated_chunks.size());
-    chunks->Create();
-    chunks->Upload(vm.allocated_chunks, 0, vm.allocated_chunks.size());
+    chunks->SetSize(std::max<size_t>(1, vm.allocated_chunks.capacity()));
 
-    TypedBuffer<ChunkPositionsHeader> *chunkPositionsHeader = renderer.CreateResource<TypedBuffer<ChunkPositionsHeader>>();
+    chunkPositionsHeader = renderer.CreateResource<TypedBuffer<ChunkPositionsHeader>>();
     chunkPositionsHeader->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
     chunkPositionsHeader->SetSize(1);
-    chunkPositionsHeader->Create();
-    chunkPositionsHeader->Upload((ChunkPositionsHeader*)&vm.chunk_occupancy, 0, 1);
 
-    TypedBuffer<uint32_t> *chunkPositions = renderer.CreateResource<TypedBuffer<uint32_t>>();
+    chunkPositions = renderer.CreateResource<TypedBuffer<uint32_t>>();
     chunkPositions->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
-    chunkPositions->SetSize(vm.chunk_occupancy.get_size());
-    chunkPositions->Create();
-    chunkPositions->Upload((uint32_t*)vm.chunk_occupancy.chunks, 0, vm.chunk_occupancy.get_size());
+    chunkPositions->SetSize(std::max<size_t>(1, vm.chunk_occupancy.get_size()));
 
     TypedBuffer<uint32_t> *activeProbesBuffer = renderer.CreateResource<TypedBuffer<uint32_t>>();
     activeProbesBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
@@ -249,7 +298,6 @@ void VoxelRenderer::Init() {
     combineLightingPass->readwrite_storage_buffers.push_back(lightChunksBuffer);
     combineLightingPass->Create();
 
-
     BlitPass *copyToSwaptex = renderer.CreateShaderPass<BlitPass>();
     copyToSwaptex->source = display;
     copyToSwaptex->destination = &renderer.swapchainTexture;
@@ -258,65 +306,83 @@ void VoxelRenderer::Init() {
     gui->destination = &renderer.swapchainTexture;
 
     cameraTransform.localPos = {0, 150, 0};
-    vm.CleanContreeNodes();
-    vm.CleanChunks();
+
     Input &input = GetModule<Input>();
     input.CreateAction("RegenLighting");
     input.CreateBinding("RegenLighting", SDLK_P);
 
+    SynchronizeVoxelData();
+    auto* uploads = renderer.CreateResource<VoxelUploadResource>();
+    uploads->synchronize = [this] { SynchronizeVoxelData(); };
 }
 
 void VoxelRenderer::Process() {
-    VoxelManager &vm = GetModule<VoxelManager>();
+    // Synchronization is executed by VoxelUploadResource before drawing.
+}
 
+void VoxelRenderer::SynchronizeVoxelData() {
+    VoxelManager& vm = GetModule<VoxelManager>();
+
+    if (vm.chunk_occupancy_needs_rebuild)
+        vm.GenerateChunkOccupancyMap();
+
+    pendingUploads.clear();
     UploadDirtyContreeNodes();
-    cameraTransformBuffer->Upload(&cameraTransform, 0, 1);
+    UploadDirtyChunks();
+    UploadDirtyOccupancyMap();
+    UploadDirtyLightChunks();
+    QueueUpload(cameraTransformBuffer, &cameraTransform, 0, sizeof(cameraTransform));
 
-    for (const glm::ivec3& position : vm.dirty_chunk_positions) {
-        uint32_t chunk_index = vm.GetChunkIndex(position);
-
-        if (chunk_index == POINTER_EMPTY)
-            continue;
-        lightChunksBuffer->Download(&lightChunks[chunk_index], 1, chunk_index);
-        UpdateLightChunk(chunk_index);
-        lightChunksBuffer->Upload(lightChunks, chunk_index, 1);
-    }
-    
-    if (GetModule<Input>().IsPressed("RegenLighting")) {
-        CreateLightChunks();
-    }
+    FlushUploads();
+    fullContreeUpload = false;
+    fullChunkUpload = false;
 }
 
 void VoxelRenderer::Shutdown() {
+    if (device) SDL_WaitForGPUIdle(device);
     if (uploadTransferBuffer) {
         SDL_ReleaseGPUTransferBuffer(device, uploadTransferBuffer);
         uploadTransferBuffer = nullptr;
         uploadTransferBufferSize = 0;
     }
+    if (downloadTransferBuffer) {
+        SDL_ReleaseGPUTransferBuffer(device, downloadTransferBuffer);
+        downloadTransferBuffer = nullptr;
+        downloadTransferBufferSize = 0;
+    }
 }
 
-void VoxelRenderer::CreateLightChunks() {
+void VoxelRenderer::CreateLightChunks(bool defer_upload) {
     Renderer &renderer = GetModule<Renderer>();
     VoxelManager &vm = GetModule<VoxelManager>();
+    if (vm.chunk_occupancy_needs_rebuild)
+        vm.GenerateChunkOccupancyMap();
     if (lightChunksBuffer == nullptr) {
         lightChunksBuffer = renderer.CreateResource<TypedBuffer<LightChunk>>();
         lightChunksBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
     }
 
-    if (lightChunks.size() != vm.allocated_chunks.size()) {
-        lightChunks.resize(vm.allocated_chunks.size());
-    }
+    lightChunks.assign(vm.allocated_chunks.size(), LightChunk{});
 
+    // Every neighbor's solid mask must be current before computing normals.
     for (size_t i = 0; i < lightChunks.size(); ++i) {
-        UpdateLightChunk(i);
+        lightChunks[i].position = vm.allocated_chunks[i].position;
+        for (size_t p = 0; p < std::size(lightChunks[i].probes); ++p)
+            UpdateLightProbeSolid(i, p);
+    }
+    for (size_t i = 0; i < lightChunks.size(); ++i) {
+        for (size_t p = 0; p < std::size(lightChunks[i].probes); ++p)
+            UpdateLightProbeNormal(i, p);
     }
 
-    if (lightChunksBuffer->GetSize() != lightChunks.size()) {
-        lightChunksBuffer->SetSize(lightChunks.size());
-        lightChunksBuffer->Create();
+    const size_t count = std::max<size_t>(1, lightChunks.size());
+    if (lightChunksBuffer->GetSize() != count)
+        lightChunksBuffer->SetSize(count);
+
+    QueueUpload(lightChunksBuffer, lightChunks.data(), 0, lightChunks.size() * sizeof(LightChunk));
+    if (!defer_upload) {
+        FlushUploads();
     }
-    
-    lightChunksBuffer->Upload(lightChunks, 0, lightChunks.size());
 }
 
 void VoxelRenderer::UpdateLightChunk(uint32_t chunk_index) {
@@ -496,84 +562,196 @@ glm::ivec3 VoxelRenderer::GetNormal(uint64_t solid, const uint64_t neighbors[6])
 }
 
 void VoxelRenderer::EnsureUploadTransferBuffer(size_t required_size) {
-    if (required_size <= uploadTransferBufferSize)
+    GrowTransferBuffer(device, uploadTransferBuffer, uploadTransferBufferSize,
+                       required_size, SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD);
+}
+
+void VoxelRenderer::QueueUpload(Buffer* destination, const void* source, size_t offset, size_t size) {
+    if (size == 0)
+        return;
+    if (!destination->GetGPU() || offset > destination->GetSize() ||
+        size > destination->GetSize() - offset)
+        throw std::runtime_error("Invalid voxel upload destination");
+    pendingUploads.push_back({destination, source, offset, size});
+}
+
+void VoxelRenderer::FlushUploads() {
+    if (pendingUploads.empty())
         return;
 
-    if (uploadTransferBuffer) {
-        SDL_ReleaseGPUTransferBuffer(device, uploadTransferBuffer);
-        uploadTransferBuffer = nullptr;
+    size_t total_size = 0;
+    for (const auto& upload : pendingUploads) {
+        if (upload.size > std::numeric_limits<Uint32>::max() - total_size)
+            throw std::runtime_error("Voxel upload exceeds SDL's buffer size limit");
+        total_size += upload.size;
     }
+    EnsureUploadTransferBuffer(total_size);
+    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, uploadTransferBuffer, true));
+    RequireGPUOperation(mapped != nullptr, "Map voxel upload buffer");
+    size_t offset = 0;
+    for (const auto& upload : pendingUploads) {
+        memcpy(mapped + offset, upload.source, upload.size);
+        offset += upload.size;
+    }
+    SDL_UnmapGPUTransferBuffer(device, uploadTransferBuffer);
 
-    size_t new_size = uploadTransferBufferSize;
-
-    if (new_size == 0)
-        new_size = 1024 * 1024;
-
-    while (new_size < required_size)
-        new_size *= 2;
-
-    SDL_GPUTransferBufferCreateInfo info{};
-    info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    info.size = static_cast<Uint32>(new_size);
-
-    uploadTransferBuffer = SDL_CreateGPUTransferBuffer(device, &info);
-    uploadTransferBufferSize = new_size;
+    auto* cmd = SDL_AcquireGPUCommandBuffer(device);
+    RequireGPUOperation(cmd != nullptr, "Acquire voxel upload command buffer");
+    auto* pass = SDL_BeginGPUCopyPass(cmd);
+    if (!pass) {
+        SDL_CancelGPUCommandBuffer(cmd);
+        RequireGPUOperation(false, "Begin voxel upload copy pass");
+    }
+    offset = 0;
+    for (const auto& upload : pendingUploads) {
+        // Partial writes must preserve all untouched elements in the GPU buffer.
+        upload.destination->Upload(pass, uploadTransferBuffer, offset,
+                                   upload.destination_offset, upload.size);
+        offset += upload.size;
+    }
+    SDL_EndGPUCopyPass(pass);
+    RequireGPUOperation(SDL_SubmitGPUCommandBuffer(cmd), "Submit voxel uploads");
+    pendingUploads.clear();
 }
 
 void VoxelRenderer::UploadDirtyContreeNodes() {
     VoxelManager& vm = GetModule<VoxelManager>();
 
-    if (contreeHeaderBuffer->GetSize() != vm.contree_headers.capacity() ||
-        contreeDataBuffer->GetSize() != vm.contree_data.capacity()) {
-
+    if (contreeHeaderBuffer->GetSize() < vm.contree_headers.size()) {
+        fullContreeUpload = true;
         contreeHeaderBuffer->SetSize(vm.contree_headers.capacity());
+    }
+    if (contreeDataBuffer->GetSize() < vm.contree_data.size()) {
+        fullContreeUpload = true;
         contreeDataBuffer->SetSize(vm.contree_data.capacity());
+    }
 
-        contreeHeaderBuffer->Upload(vm.contree_headers, 0, vm.contree_headers.size());
-        contreeDataBuffer->Upload(vm.contree_data, 0, vm.contree_data.size());
+    auto queue = [&](size_t first, size_t count) {
+        if (count == 0) return;
+        QueueUpload(contreeHeaderBuffer, vm.contree_headers.data() + first,
+                    first * sizeof(ContreeHeader), count * sizeof(ContreeHeader));
+        QueueUpload(contreeDataBuffer, vm.contree_data.data() + first,
+                    first * sizeof(ContreeData), count * sizeof(ContreeData));
+    };
+    if (fullContreeUpload)
+        queue(0, vm.contree_headers.size());
+    else
+        VisitRanges(vm.dirty_contree_indices, queue);
+}
 
+void VoxelRenderer::UploadDirtyChunks() {
+    VoxelManager& vm = GetModule<VoxelManager>();
+
+    const size_t count = vm.allocated_chunks.size();
+    if (chunks->GetSize() < count) {
+        fullChunkUpload = true;
+        chunks->SetSize(vm.allocated_chunks.capacity());
+    }
+
+    auto queue = [&](size_t first, size_t range_count) {
+        if (range_count == 0) return;
+        QueueUpload(chunks, vm.allocated_chunks.data() + first,
+                    first * sizeof(Chunk), range_count * sizeof(Chunk));
+    };
+    if (fullChunkUpload) {
+        queue(0, count);
         return;
     }
 
-    size_t dirty_count = vm.dirty_contree_indices.size();
+    std::vector<uint32_t> indices;
+    indices.reserve(vm.dirty_chunk_positions.size());
+    for (const glm::ivec3& position : vm.dirty_chunk_positions) {
+        uint32_t index = vm.GetChunkIndex(position);
+        if (index != POINTER_EMPTY)
+            indices.push_back(index);
+    }
+    VisitRanges(indices, queue);
+}
 
-    if (dirty_count == 0)
+void VoxelRenderer::UploadDirtyOccupancyMap() {
+    VoxelManager& vm = GetModule<VoxelManager>();
+
+    if (vm.chunk_occupancy_needs_rebuild) {
+        vm.GenerateChunkOccupancyMap();
+    }
+    if (!vm.chunk_occupancy_dirty && !fullChunkUpload)
         return;
 
-    size_t required_size = dirty_count * (sizeof(ContreeHeader) + sizeof(ContreeData));
+    occupancyUploadHeader = {};
+    occupancyUploadHeader.position = vm.chunk_occupancy.position;
+    occupancyUploadHeader.size = vm.chunk_occupancy.size;
 
-    EnsureUploadTransferBuffer(required_size);
+    const size_t count = vm.chunk_occupancy.get_size();
+    if (chunkPositions->GetSize() < count)
+        chunkPositions->SetSize(count);
+    QueueUpload(chunkPositions, vm.chunk_occupancy.chunks, 0, count * sizeof(uint32_t));
+    QueueUpload(chunkPositionsHeader, &occupancyUploadHeader, 0, sizeof(occupancyUploadHeader));
+}
 
-    uint8_t* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, uploadTransferBuffer, true));
+void VoxelRenderer::DownloadLightChunks(const std::vector<uint32_t>& indices) {
+    if (indices.empty()) return;
 
-    size_t transfer_offset = 0;
+    const size_t required = indices.size() * sizeof(LightChunk);
+    GrowTransferBuffer(device, downloadTransferBuffer, downloadTransferBufferSize,
+                       required, SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD);
+    auto* cmd = SDL_AcquireGPUCommandBuffer(device);
+    RequireGPUOperation(cmd != nullptr, "Acquire light readback command buffer");
+    auto* pass = SDL_BeginGPUCopyPass(cmd);
+    if (!pass) {
+        SDL_CancelGPUCommandBuffer(cmd);
+        RequireGPUOperation(false, "Begin light readback copy pass");
+    }
+    for (size_t i = 0; i < indices.size(); ++i)
+        lightChunksBuffer->Download(pass, downloadTransferBuffer, i * sizeof(LightChunk), indices[i], 1);
+    SDL_EndGPUCopyPass(pass);
+    auto* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    RequireGPUOperation(fence != nullptr, "Submit light readback");
+    const bool ready = SDL_WaitForGPUFences(device, true, &fence, 1);
+    SDL_ReleaseGPUFence(device, fence);
+    RequireGPUOperation(ready, "Wait for light readback");
 
-    for (uint32_t node_index : vm.dirty_contree_indices) {
-        if (node_index >= vm.contree_headers.size())
-            continue;
+    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, downloadTransferBuffer, false));
+    RequireGPUOperation(mapped != nullptr, "Map light readback buffer");
+    for (size_t i = 0; i < indices.size(); ++i)
+        memcpy(&lightChunks[indices[i]], mapped + i * sizeof(LightChunk), sizeof(LightChunk));
+    SDL_UnmapGPUTransferBuffer(device, downloadTransferBuffer);
+}
 
-        memcpy(mapped + transfer_offset, &vm.contree_headers[node_index], sizeof(ContreeHeader));
-        transfer_offset += sizeof(ContreeHeader);
-        memcpy(mapped + transfer_offset, &vm.contree_data[node_index], sizeof(ContreeData));
-        transfer_offset += sizeof(ContreeData);
+void VoxelRenderer::UploadDirtyLightChunks() {
+    VoxelManager& vm = GetModule<VoxelManager>();
+    if (vm.chunk_occupancy_dirty ||
+        GetModule<Input>().IsPressed("RegenLighting")) {
+        CreateLightChunks(true);
+        return;
     }
 
-    SDL_UnmapGPUTransferBuffer(device, uploadTransferBuffer);
-
-    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
-    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
-    transfer_offset = 0;
-
-    for (uint32_t node_index : vm.dirty_contree_indices) {
-        if (node_index >= vm.contree_headers.size())
-            continue;
-
-        contreeHeaderBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
-        transfer_offset += sizeof(ContreeHeader);
-        contreeDataBuffer->Upload(copy_pass, uploadTransferBuffer, transfer_offset, node_index, 1);
-        transfer_offset += sizeof(ContreeData);
+    const glm::ivec3 offsets[] = {
+        {0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+        {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
+    };
+    std::vector<uint32_t> indices;
+    for (const auto& position : vm.dirty_chunk_positions) {
+        for (const auto& offset : offsets) {
+            uint32_t index = vm.GetChunkIndex(position + offset);
+            if (index != POINTER_EMPTY)
+                indices.push_back(index);
+        }
     }
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    DownloadLightChunks(indices);
 
-    SDL_EndGPUCopyPass(copy_pass);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    // Two passes avoid using a neighbor's old solid mask for boundary normals.
+    for (uint32_t index : indices) {
+        for (size_t p = 0; p < std::size(lightChunks[index].probes); ++p)
+            UpdateLightProbeSolid(index, p);
+    }
+    for (uint32_t index : indices) {
+        for (size_t p = 0; p < std::size(lightChunks[index].probes); ++p)
+            UpdateLightProbeNormal(index, p);
+    }
+    VisitRanges(indices, [&](size_t first, size_t count) {
+        QueueUpload(lightChunksBuffer, lightChunks.data() + first,
+                    first * sizeof(LightChunk), count * sizeof(LightChunk));
+    });
 }

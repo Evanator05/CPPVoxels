@@ -60,6 +60,8 @@ class VoxelManager : public EngineModule {
 
         void FillSphere(glm::vec3 position, float radius, Voxel voxel);
         
+        void AddToOccupancy(uint32_t chunk_index);
+        void RemoveFromOccupancy(glm::ivec3 position);
         void GenerateChunkOccupancyMap(void);
         
         void DirtyContreeNode(uint32_t node_index);
@@ -80,9 +82,10 @@ class VoxelManager : public EngineModule {
 
         std::unordered_set<glm::ivec3> dirty_chunk_positions;
 
-        bool chunk_occupancy_dirty = false;
+        bool chunk_occupancy_dirty = true;
+        bool chunk_occupancy_needs_rebuild = true;
     private:
-        std::vector<uint32_t> free_contree_indices{};  
+        std::vector<uint32_t> free_contree_indices{};
 };
 
 #include "voxelmanager_sdf.inl"

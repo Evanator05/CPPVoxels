@@ -124,6 +124,7 @@ template<class SDF>
 void VoxelManager::FillSDF(Voxel voxel, SDF&& sdf) {
     for (const Chunk& chunk : allocated_chunks) {
         FillSDFRoot(chunk.contree_node, glm::vec3(chunk.position) * float(Chunk::WIDTH), voxel, sdf);
+        DirtyChunk(chunk.position);
     }
 }
 
@@ -157,6 +158,7 @@ void VoxelManager::FillSDF(Voxel voxel, SDF&& sdf, glm::ivec3 sdf_min, glm::ivec
                 p.x > last.x || p.y > last.y || p.z > last.z)
                 continue;
             FillSDFRoot(chunk.contree_node, glm::vec3(p) * float(Chunk::WIDTH), voxel, sdf);
+            DirtyChunk(p);
         }
         return;
     }

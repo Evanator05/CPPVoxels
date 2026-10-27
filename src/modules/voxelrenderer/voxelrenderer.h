@@ -55,7 +55,7 @@ class VoxelRenderer : public EngineModule {
         void Process(void) override;
         void Shutdown(void) override;
 
-        void CreateLightChunks();
+        void CreateLightChunks(bool defer_upload = false);
         void UpdateLightChunk(uint32_t chunk_index);
         void UpdateLightProbeSolid(uint32_t chunk_index, uint16_t probe_index);
         void UpdateLightProbeNormal(uint32_t chunk_index, uint16_t probe_index);
@@ -65,9 +65,24 @@ class VoxelRenderer : public EngineModule {
         glm::ivec3 GetNormal(uint64_t solid, const uint64_t neighbors[6]);
 
         CameraTransform cameraTransform{};
+
     private:
+        struct BufferUpload {
+            Buffer* destination;
+            const void* source;
+            size_t destination_offset;
+            size_t size;
+        };
+
+        void SynchronizeVoxelData();
+        void QueueUpload(Buffer* destination, const void* source, size_t offset, size_t size);
+        void FlushUploads();
         void EnsureUploadTransferBuffer(size_t required_size);
         void UploadDirtyContreeNodes();
+        void UploadDirtyChunks();
+        void UploadDirtyOccupancyMap();
+        void UploadDirtyLightChunks();
+        void DownloadLightChunks(const std::vector<uint32_t>& indices);
 
         SDL_GPUDevice *device = nullptr;
         
@@ -78,7 +93,17 @@ class VoxelRenderer : public EngineModule {
 
         TypedBuffer<ContreeHeader> *contreeHeaderBuffer = nullptr;
         TypedBuffer<ContreeData> *contreeDataBuffer = nullptr;
+        TypedBuffer<Chunk>* chunks = nullptr;
+        TypedBuffer<ChunkPositionsHeader>* chunkPositionsHeader = nullptr;
+        TypedBuffer<uint32_t>* chunkPositions = nullptr;
 
         SDL_GPUTransferBuffer *uploadTransferBuffer = nullptr;
         size_t uploadTransferBufferSize = 0;
+        SDL_GPUTransferBuffer *downloadTransferBuffer = nullptr;
+        size_t downloadTransferBufferSize = 0;
+
+        std::vector<BufferUpload> pendingUploads{};
+        ChunkPositionsHeader occupancyUploadHeader{};
+        bool fullContreeUpload = true;
+        bool fullChunkUpload = true;
 };

@@ -68,7 +68,7 @@ void Renderer::Init() {
     InitDevice(device, window.GetWindow());
 
     SDL_SetGPUAllowedFramesInFlight(device, 1);
-    SetVSync(false); // setting to false uncaps framerate
+    SetVSync(true); // setting to false uncaps framerate
 }
 
 void Renderer::Process() {

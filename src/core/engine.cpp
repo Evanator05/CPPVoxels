@@ -3,6 +3,7 @@
 
 #include "engine.h"
 
+#include "modules/voxel/voxelserializer.h"
 #include "filesystem.h"
 #include "deltatime.h"
 #include "window.h"
@@ -18,6 +19,7 @@
 
 Engine::Engine() {
     AddModule<FileSystem>();
+    AddModule<VoxelSerializer>();
     AddModule<DeltaTime>();
     AddModule<Input>();
     AddModule<Window>();

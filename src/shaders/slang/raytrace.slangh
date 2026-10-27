@@ -1,4 +1,10 @@
 #include "voxel.slangh"
+// Optional root-pointer grid appended after the original chunk-index grid.
+// Leave disabled for callers that supply only the original buffer layout.
+// 0: empty 2x2x2 groups; 1: also empty half-nodes; 2: also 16-cell bricks.
+#ifndef TRACE_RECT_GROUP
+#define TRACE_RECT_GROUP 2
+#endif
 
 #define TRACE_DIRECTION_EPSILON 1e-8
 #define TRACE_HUGE 1e30
@@ -113,23 +119,30 @@ AABBIntersection IntersectAABB(Ray ray, AABB aabb) {
 
 struct TraceNodeMasks {
     uint2 solid;
-    uint2 voxel;
 };
 
 TraceNodeMasks TraceLoadMasks(uint node, StructuredBuffer<ContreeHeader> headers) {
-    ContreeHeader h = headers[node];
     TraceNodeMasks m;
-    m.solid = uint2(uint(h.isSolidMask), uint(h.isSolidMask >> 32));
-    m.voxel = uint2(uint(h.isVoxelMask), uint(h.isVoxelMask >> 32));
+    uint64_t solid = headers[node].isSolidMask;
+    m.solid = uint2(uint(solid), uint(solid >> 32));
     return m;
 }
 
+bool TraceIsVoxel(uint node, uint slot, StructuredBuffer<ContreeHeader> headers) {
+    // Fetch the voxel/child discriminator only after the solid bit is set.
+    uint64_t voxel = headers[node].isVoxelMask;
+    uint word = slot < 32u ? uint(voxel) : uint(voxel >> 32);
+    return ((word >> (slot & 31u)) & 1u) != 0;
+}
+
 bool TraceMaskBit(uint2 mask, uint slot) {
+    // Storage remains uint64_t; bounded 32-bit shifts select either half.
     uint word = slot < 32u ? mask.x : mask.y;
     return ((word >> (slot & 31u)) & 1u) != 0u;
 }
 
 bool TraceEmptyGroup(uint2 solid, uint slot) {
+    // Eight children in the aligned 2x2x2 group containing this slot.
     uint word = slot < 32u ? solid.x : solid.y;
     return ((word >> (slot & 0x0Au)) & 0x00330033u) == 0u;
 }
@@ -138,7 +151,6 @@ uint TracePositionSlot(uint3 positionBits, uint scaleExp, uint mirrorMask) {
     uint3 c = (positionBits >> scaleExp) & uint3(3u);
     return (c.x | (c.y << 2) | (c.z << 4)) ^ mirrorMask;
 }
-
 TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPosition, float startDepth, uint entryMask, StructuredBuffer<ContreeHeader> contreeHeaders, StructuredBuffer<ContreeData> contreeData, float maxDepth = float.maxValue, int3 coordinateOffset = int3(0)) {
     TraceResult result = TraceMiss(ray.direction);
     if (!(maxDepth >= 0.0) ||
@@ -147,6 +159,13 @@ TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPositi
 
     TraceNodeMasks masks = TraceLoadMasks(rootNode, contreeHeaders);
     if ((masks.solid.x | masks.solid.y) == 0u) return result;
+
+    float3 entryFloor = floor(entryPosition);
+    int3 entryVoxel = int3(entryFloor) - int3((ray.step < int3(0)) && (entryPosition == entryFloor));
+    entryVoxel = clamp(entryVoxel, int3(0), int3(63));
+    uint node = rootNode;
+    uint middleNode = rootNode;
+    uint scaleExp = 21u;
 
     bool3 mirrored = ray.step > int3(0);
     uint mirrorMask = (mirrored.x ? 3u : 0u) |
@@ -159,16 +178,10 @@ TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPositi
     float3 walkDirection = -abs(ray.direction) * (1.0 / 64.0);
     float3 walkInverse = -abs(ray.invDirection) * 64.0;
 
-    float3 entryFloor = floor(entryPosition);
-    int3 entryVoxel = int3(entryFloor) - int3((ray.step < int3(0)) && (entryPosition == entryFloor));
-    entryVoxel = clamp(entryVoxel, int3(0), int3(63));
     uint3 mirroredVoxel = uint3(entryVoxel) ^ select(mirrored, uint3(63u), uint3(0u));
     uint3 entryLower = uint3(0x3F800000u) | (mirroredVoxel << 17u);
     uint3 positionBits = clamp(asuint(walkOrigin), entryLower, entryLower | uint3(0x0001FFFFu));
 
-    uint node = rootNode;
-    uint middleNode = rootNode;
-    uint scaleExp = 21u;
     float travel = 0.0;
 
     [loop]
@@ -181,9 +194,10 @@ TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPositi
         }
         uint slot = TracePositionSlot(positionBits, scaleExp, mirrorMask);
 
-        [loop]
-        while (TraceMaskBit(masks.solid, slot)) {
-            if (scaleExp == 17u || TraceMaskBit(masks.voxel, slot)) {
+        [loop] while (TraceMaskBit(masks.solid, slot)) {
+            bool voxel = scaleExp == 17u;
+            voxel = voxel || TraceIsVoxel(node, slot, contreeHeaders);
+            if (voxel) {
                 uint3 voxelPos = (positionBits >> 17u) & uint3(63u);
                 voxelPos ^= select(mirrored, uint3(63u), uint3(0u));
                 float hitDepth = startDepth + travel;
@@ -211,23 +225,53 @@ TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPositi
         }
 
         uint advanceExp = scaleExp;
-        if ((masks.solid.x | masks.solid.y) == 0u) {
-            advanceExp += 2u;
-        } else if (TraceEmptyGroup(masks.solid, slot)) {
-            advanceExp += 1u;
+        bool skipNode = (masks.solid.x | masks.solid.y) == 0u;
+        uint3 nodeBoxBits;
+        float3 nodeExits;
+        if (skipNode) {
+            nodeBoxBits = positionBits & uint3(0xFFFFFFFFu << (scaleExp + 2u));
+            nodeExits = (asfloat(nodeBoxBits) - walkOrigin) * walkInverse;
+            nodeExits = select(ray.step == int3(0), float3(TRACE_HUGE), nodeExits);
         }
 
-        uint3 boxBits = positionBits & uint3(0xFFFFFFFFu << advanceExp);
-        float3 boxMin = asfloat(boxBits);
-        float3 exits = (boxMin - walkOrigin) * walkInverse;
-        exits = select(ray.step == int3(0), float3(TRACE_HUGE), exits);
+        uint3 boxBits;
+        float3 exits;
+        uint3 advanceVector = uint3(advanceExp);
+        if (skipNode) {
+            advanceExp += 2u;
+            boxBits = nodeBoxBits;
+            exits = nodeExits;
+        } else {
+            if (TraceEmptyGroup(masks.solid, slot)) {
+                // Grow only through proven-empty children. Vector exponents
+                // let the same float-bit walk skip rectangular regions.
+                advanceVector += uint3(1u);
+                uint combined = masks.solid.x | masks.solid.y;
+                uint word = slot < 32u ? masks.solid.x : masks.solid.y;
+                bool halfY = ((combined >> (slot & 8u)) & 0x00FF00FFu) == 0;
+                bool halfX = ((combined >> (slot & 2u)) & 0x33333333u) == 0;
+                bool halfZ = word == 0;
+                if (halfY) advanceVector += uint3(1,0,1);
+                else if (halfX) advanceVector += uint3(0,1,1);
+                else if (halfZ) advanceVector += uint3(1,1,0);
+                else {
+                    if (((word >> (slot & 8u)) & 0x00FF00FFu) == 0) advanceVector.x++;
+                    else if (((word >> (slot & 2u)) & 0x33333333u) == 0) advanceVector.y++;
+                    else if (((combined >> (slot & 10u)) & 0x00330033u) == 0) advanceVector.z++;
+                }
+            }
+            boxBits = positionBits & (uint3(0xFFFFFFFFu) << advanceVector);
+            exits = (asfloat(boxBits) - walkOrigin) * walkInverse;
+            exits = select(ray.step == int3(0), float3(TRACE_HUGE), exits);
+        }
         float nextTravel = Min3(exits);
         bool3 crossed = exits <= nextTravel;
         travel = max(nextTravel, travel);
         entryMask = EncodeAxisMask(crossed);
 
-        uint tail = (1u << advanceExp) - 1u;
-        uint3 upperBits = boxBits + select(crossed, uint3(0xFFFFFFFFu), uint3(tail));
+        if (skipNode) advanceVector = uint3(advanceExp);
+        uint3 tail = (uint3(1u) << advanceVector) - uint3(1u);
+        uint3 upperBits = boxBits + select(crossed, uint3(0xFFFFFFFFu), tail);
         float3 nextPosition = min(walkOrigin + walkDirection * travel, asfloat(upperBits));
         uint3 nextBits = asuint(nextPosition);
 
@@ -242,6 +286,7 @@ TraceResult TraceChunkAtEntry(uint rootNode, PreparedRay ray, float3 entryPositi
         if (scaleExp < 21u && (changed & 0x00600000u) != 0u) {
             node = rootNode;
             scaleExp = 21u;
+            // Reload on ascent instead of retaining ancestor masks per ray.
             masks = TraceLoadMasks(node, contreeHeaders);
         } else if (scaleExp < 19u && (changed & 0x00180000u) != 0u) {
             node = middleNode;
@@ -309,7 +354,9 @@ TraceResult TraceWorld(Ray ray, StructuredBuffer<ContreeHeader> contreeHeaders, 
         if (any(cell < int3(0)) || any(cell >= regionSize) ||
             entry >= intersection.far || (maxDepth < float.maxValue && entry > maxDepth)) break;
 
-        uint index = uint(cell.x) + uint(cell.y) * width + uint(cell.z) * area;
+        uint index;
+        index = uint(cell.x) + uint(cell.y) * width + uint(cell.z) * area;
+
         uint chunkIndex = chunkPositions[index];
         if (chunkIndex != POINTER_EMPTY) {
             uint rootNode = chunks[chunkIndex].contree_node;

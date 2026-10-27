@@ -22,10 +22,12 @@ void VoxelManager::Process() {
 void VoxelManager::PostProcess() {
     CleanContreeNodes();
     CleanChunks();
+    chunk_occupancy_dirty = false;
 }
 
 void VoxelManager::Shutdown() {
     delete[] chunk_occupancy.chunks;
+    chunk_occupancy = {};
     contree_data.reserve(0);
     free_contree_indices.reserve(0);
     allocated_chunks.reserve(0);
@@ -46,7 +48,7 @@ uint32_t VoxelManager::AllocateContreeNode() {
     contree_headers[data_index].isSolidMask = 0;
     contree_data[data_index] = {};
     
-    dirty_contree_flags.resize(contree_data.size()/64+1);
+    dirty_contree_flags.resize((contree_data.size() + 63) / 64);
 
     DirtyContreeNode(data_index);
 
@@ -64,42 +66,86 @@ void VoxelManager::FreeContreeNode(uint32_t root) {
     }
     contree_headers[root].isVoxelMask = CONTREE_VOXEL_MASK_FULL;
     contree_headers[root].isSolidMask = 0;
+    contree_data[root] = {};
+    DirtyContreeNode(root);
     free_contree_indices.push_back(root);
 }
 
-uint32_t VoxelManager::AllocateChunk(const glm::ivec3 position) {
+uint32_t VoxelManager::AllocateChunk(glm::ivec3 position) {
+    uint32_t index = static_cast<uint32_t>(allocated_chunks.size());
+
     allocated_chunks.push_back({
         position,
-        //CHUNK_FLAG_EXISTS,
         AllocateContreeNode()
     });
+
     DirtyChunk(position);
-    return allocated_chunks.size() - 1;
+    AddToOccupancy(index);
+
+    return index;
 }
 
-void VoxelManager::FreeChunk(uint32_t chunk) {
-    FreeContreeNode(allocated_chunks[chunk].contree_node);
-    allocated_chunks[chunk] = allocated_chunks.back();
+void VoxelManager::FreeChunk(uint32_t chunk_index) {
+    if (chunk_index >= allocated_chunks.size())
+        return;
+
+    glm::ivec3 removedPosition = allocated_chunks[chunk_index].position;
+
+    FreeContreeNode(allocated_chunks[chunk_index].contree_node);
+
+    uint32_t lastIndex =
+        static_cast<uint32_t>(allocated_chunks.size() - 1);
+
+    if (chunk_index != lastIndex) {
+        allocated_chunks[chunk_index] = allocated_chunks[lastIndex];
+        DirtyChunk(allocated_chunks[chunk_index].position);
+    }
+
     allocated_chunks.pop_back();
+
+    RemoveFromOccupancy(removedPosition);
+    if (chunk_index != lastIndex)
+        AddToOccupancy(chunk_index);
+
+    // Keep the removed position dirty so neighboring probe normals are refreshed.
+    DirtyChunk(removedPosition);
 }
 
-uint32_t VoxelManager::GetChunkIndex(const glm::ivec3 position) {
-    glm::ivec3 maxBound = chunk_occupancy.position + glm::ivec3(chunk_occupancy.size);
-    if (glm::any(glm::lessThan(position, chunk_occupancy.position) || glm::greaterThanEqual(position, maxBound))) {
+uint32_t VoxelManager::GetChunkIndex(glm::ivec3 position) {
+    if (chunk_occupancy_needs_rebuild) {
+        GenerateChunkOccupancyMap();
+    }
+
+    if (chunk_occupancy.chunks == nullptr)
+        return POINTER_EMPTY;
+
+    glm::ivec3 maxBound =
+        chunk_occupancy.position +
+        glm::ivec3(chunk_occupancy.size);
+
+    if (glm::any(glm::lessThan(position, chunk_occupancy.position)) ||
+        glm::any(glm::greaterThanEqual(position, maxBound))) {
         return POINTER_EMPTY;
     }
 
-    glm::ivec3 local = position - chunk_occupancy.position;
+    glm::ivec3 local =
+        position - chunk_occupancy.position;
 
     size_t index =
-        (size_t)local.x +
-        (size_t)local.y * chunk_occupancy.size.x +
-        (size_t)local.z * chunk_occupancy.size.x * chunk_occupancy.size.y;
+        size_t(local.x) +
+        size_t(local.y) * chunk_occupancy.size.x +
+        size_t(local.z) * chunk_occupancy.size.x *
+        chunk_occupancy.size.y;
 
     return chunk_occupancy.chunks[index];
 }
 
 glm::ivec3 VoxelManager::GetChunkPosition(glm::ivec3 world_position) {
+    // Bounded SDF edits read occupancy bounds immediately after this call.
+    // Refresh them here as well as in GetChunkIndex, after topology changes.
+    if (chunk_occupancy_needs_rebuild)
+        GenerateChunkOccupancyMap();
+
     return glm::ivec3(
         world_position.x >= 0 ? world_position.x / Chunk::WIDTH : (world_position.x - Chunk::WIDTH + 1) / Chunk::WIDTH,
         world_position.y >= 0 ? world_position.y / Chunk::WIDTH : (world_position.y - Chunk::WIDTH + 1) / Chunk::WIDTH,
@@ -114,7 +160,6 @@ void VoxelManager::SetVoxel(glm::ivec3 world_position, Voxel voxel) {
     uint32_t chunk_index = GetChunkIndex(chunk_position);
     if (chunk_index == POINTER_EMPTY) return;
     SetVoxel(chunk_index, local_position, voxel);
-    DirtyChunk(chunk_position);
 }
 
 Voxel VoxelManager::GetVoxel(glm::ivec3 world_position) {
@@ -126,6 +171,10 @@ Voxel VoxelManager::GetVoxel(glm::ivec3 world_position) {
 }
 
 void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
+    if (chunk >= allocated_chunks.size() ||
+        glm::any(glm::greaterThanEqual(position, glm::uvec3(Chunk::WIDTH))))
+        return;
+
     struct NodeStack {
         uint32_t node_index;
         uint8_t child_index;
@@ -135,8 +184,6 @@ void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
     uint32_t node_index = allocated_chunks[chunk].contree_node;
 
     glm::uvec3 chunk_width = glm::uvec3(Chunk::WIDTH);
-
-    stack.push({node_index, 0});
 
     for (uint8_t depth = 0; depth < ContreeNode::MAX_DEPTH - 1; depth++) { // depth - 1 because we dont need to allocate/check on the last layer we just want to set a voxel in it
         chunk_width /= ContreeNode::WIDTH;
@@ -170,8 +217,11 @@ void VoxelManager::SetVoxel(uint32_t chunk, glm::uvec3 position, Voxel voxel) {
     uint8_t child_node_index = ContreeNode::GetIndex(position);
 
     ContreeNode node{&contree_headers[node_index], &contree_data[node_index]};
+    if (node.GetVoxel(child_node_index) == voxel)
+        return;
     node.SetVoxel(child_node_index, voxel);
     DirtyContreeNode(node_index);
+    DirtyChunk(allocated_chunks[chunk].position);
 
     ContreeNode current_node = {&contree_headers[node_index], &contree_data[node_index]};
 
@@ -200,7 +250,7 @@ Voxel VoxelManager::GetVoxel(uint32_t chunk, glm::uvec3 position) {
     
     glm::uvec3 chunk_width = glm::uvec3(Chunk::WIDTH);
     
-    for (uint8_t depth; depth < ContreeNode::MAX_DEPTH; depth++) {
+    for (uint8_t depth = 0; depth < ContreeNode::MAX_DEPTH; depth++) {
         chunk_width /= ContreeNode::WIDTH;
 
         glm::uvec3 node_position = (position / chunk_width);
@@ -250,6 +300,10 @@ bool FullyContains(glm::ivec3 outerMin, glm::ivec3 outerMax, glm::ivec3 innerMin
 }
 
 void VoxelManager::FillNodeUniform(uint32_t node_index, Voxel voxel) {
+    ContreeNode current{&contree_headers[node_index], &contree_data[node_index]};
+    if (current.GetVoxel(0) == voxel && current.IsUniform())
+        return;
+
     glm::uvec3 i;
     for (i.x = 0; i.x < ContreeNode::WIDTH; i.x++)
         for (i.y = 0; i.y < ContreeNode::WIDTH; i.y++)
@@ -279,6 +333,9 @@ void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 nod
                 glm::ivec3 child_end = child_pos + glm::ivec3(node_width) - glm::ivec3(1);
 
                 if (!Intersects(child_pos, child_end, start_position, end_position)) continue;
+                if (contree_headers[node_index].IsVoxel(index) &&
+                    contree_data[node_index].GetVoxel(index) == voxel)
+                    continue;
 
                 if (FullyContains(start_position, end_position, child_pos, child_end)) {
                     if (!contree_headers[node_index].IsVoxel(index)) FreeContreeNode(contree_data[node_index].GetPtr(index));
@@ -310,10 +367,48 @@ void VoxelManager::FillVoxels(uint32_t node_index, uint8_t depth, glm::ivec3 nod
     }
 }
 
+void VoxelManager::AddToOccupancy(uint32_t chunk_index) {
+    if (chunk_index >= allocated_chunks.size()) return;
+
+    glm::ivec3 local = allocated_chunks[chunk_index].position - chunk_occupancy.position;
+    if (chunk_occupancy_needs_rebuild || chunk_occupancy.chunks == nullptr ||
+        glm::any(glm::lessThan(local, glm::ivec3(0))) ||
+        glm::any(glm::greaterThanEqual(local, glm::ivec3(chunk_occupancy.size)))) {
+        // The chunk is already in allocated_chunks, so rebuilding inserts it too.
+        GenerateChunkOccupancyMap();
+        return;
+    }
+
+    size_t index = size_t(local.x) + size_t(local.y) * chunk_occupancy.size.x +
+                   size_t(local.z) * chunk_occupancy.size.x * chunk_occupancy.size.y;
+    chunk_occupancy.chunks[index] = chunk_index;
+    chunk_occupancy_dirty = true;
+}
+
+void VoxelManager::RemoveFromOccupancy(glm::ivec3 position) {
+    if (chunk_occupancy_needs_rebuild) GenerateChunkOccupancyMap();
+    if (chunk_occupancy.chunks == nullptr) return;
+
+    glm::ivec3 local = position - chunk_occupancy.position;
+    if (glm::any(glm::lessThan(local, glm::ivec3(0))) ||
+        glm::any(glm::greaterThanEqual(local, glm::ivec3(chunk_occupancy.size)))) return;
+
+    size_t index = size_t(local.x) + size_t(local.y) * chunk_occupancy.size.x +
+                   size_t(local.z) * chunk_occupancy.size.x * chunk_occupancy.size.y;
+    chunk_occupancy.chunks[index] = POINTER_EMPTY;
+    chunk_occupancy_dirty = true;
+}
+
 void VoxelManager::GenerateChunkOccupancyMap() {
     if (allocated_chunks.empty()) {
         delete[] chunk_occupancy.chunks;
+
         chunk_occupancy.chunks = nullptr;
+        chunk_occupancy.position = glm::ivec3(0);
+        chunk_occupancy.size = glm::uvec3(0);
+
+        chunk_occupancy_needs_rebuild = false;
+        chunk_occupancy_dirty = true;
         return;
     }
     // Chunk-space bounds
@@ -328,7 +423,7 @@ void VoxelManager::GenerateChunkOccupancyMap() {
 
     glm::ivec3 gridSize = (max - min) + glm::ivec3(1);
     
-    size_t newSize = gridSize.x * gridSize.y * gridSize.z; 
+    size_t newSize = size_t(gridSize.x) * size_t(gridSize.y) * size_t(gridSize.z);
     size_t oldSize = chunk_occupancy.get_size();
 
     // Resize occupancy vector if the size is different
@@ -337,9 +432,9 @@ void VoxelManager::GenerateChunkOccupancyMap() {
         if (!newMem) return;
         delete[] chunk_occupancy.chunks;
         chunk_occupancy.chunks = newMem;
-        chunk_occupancy.size = gridSize;
     }
-    
+
+    chunk_occupancy.size = gridSize;
     chunk_occupancy.position = min;
     
     // Fill map with empty entries
@@ -353,16 +448,22 @@ void VoxelManager::GenerateChunkOccupancyMap() {
 
         glm::ivec3 local = c.position - min;
 
-        uint32_t index =
-            local.x +
-            local.y * gridSize.x +
-            local.z * gridSize.x * gridSize.y;
+        size_t index =
+            size_t(local.x) +
+            size_t(local.y) * size_t(gridSize.x) +
+            size_t(local.z) * size_t(gridSize.x) * size_t(gridSize.y);
 
         chunk_occupancy.chunks[index] = i;
     }
+
+    chunk_occupancy_needs_rebuild = false;
+    chunk_occupancy_dirty = true;
 }
 
 void VoxelManager::DirtyContreeNode(uint32_t node_index) {
+    if (node_index >= contree_headers.size())
+        return;
+
     uint32_t page_index = node_index / 64;
     uint32_t bit_index  = node_index % 64;
     uint64_t mask = 1ull << bit_index;
