@@ -89,6 +89,7 @@ set(ALL_SOURCES
 )
 
 add_executable(Voxels ${ALL_SOURCES})
+target_compile_options(Voxels PRIVATE -freflection)
 
 find_package(Vulkan REQUIRED)
 
@@ -99,12 +100,15 @@ target_include_directories(Voxels PRIVATE
     ${CMAKE_SOURCE_DIR}/imgui
 )
 
-target_link_directories(Voxels PRIVATE ${CMAKE_SOURCE_DIR}/lib/SDL3)
+target_link_directories(Voxels PRIVATE
+    ${CMAKE_SOURCE_DIR}/lib/SDL3
+    ${CMAKE_SOURCE_DIR}/lib/zstd
+)
 
-target_link_libraries(Voxels
-    PRIVATE
+target_link_libraries(Voxels PRIVATE
     Vulkan::Vulkan
     SDL3
+    LibZSTD_Static
 )
 
 target_link_options(Voxels PRIVATE

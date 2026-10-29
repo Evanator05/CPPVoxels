@@ -307,10 +307,6 @@ void VoxelRenderer::Init() {
 
     cameraTransform.localPos = {0, 150, 0};
 
-    Input &input = GetModule<Input>();
-    input.CreateAction("RegenLighting");
-    input.CreateBinding("RegenLighting", SDLK_P);
-
     SynchronizeVoxelData();
     auto* uploads = renderer.CreateResource<VoxelUploadResource>();
     uploads->synchronize = [this] { SynchronizeVoxelData(); };
@@ -719,8 +715,7 @@ void VoxelRenderer::DownloadLightChunks(const std::vector<uint32_t>& indices) {
 
 void VoxelRenderer::UploadDirtyLightChunks() {
     VoxelManager& vm = GetModule<VoxelManager>();
-    if (vm.chunk_occupancy_dirty ||
-        GetModule<Input>().IsPressed("RegenLighting")) {
+    if (vm.chunk_occupancy_dirty) {
         CreateLightChunks(true);
         return;
     }

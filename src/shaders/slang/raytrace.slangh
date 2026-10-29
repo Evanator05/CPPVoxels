@@ -1,14 +1,7 @@
 #include "voxel.slangh"
-// Optional root-pointer grid appended after the original chunk-index grid.
-// Leave disabled for callers that supply only the original buffer layout.
-// 0: empty 2x2x2 groups; 1: also empty half-nodes; 2: also 16-cell bricks.
-#ifndef TRACE_RECT_GROUP
-#define TRACE_RECT_GROUP 2
-#endif
 
 #define TRACE_DIRECTION_EPSILON 1e-8
 #define TRACE_HUGE 1e30
-#define TRACE_NODE_WIDTH 4
 
 struct Ray {
     float3 origin;

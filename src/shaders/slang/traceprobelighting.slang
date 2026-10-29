@@ -5,7 +5,7 @@
 #define PROBE_LIGHTING_THREADS 64
 
 #ifndef PROBE_LIGHTING_SAMPLES
-#define PROBE_LIGHTING_SAMPLES 2
+#define PROBE_LIGHTING_SAMPLES 1
 #endif
 
 static const uint PL_DIFFUSE_BOUNCES = 2u;
@@ -57,7 +57,7 @@ TraceResult PL_Trace(float3 origin, float3 direction) {
         contreeData,
         chunks,
         chunkPositionsHeader,
-        chunkPositions
+        chunkPositions, 200
     );
 }
 
