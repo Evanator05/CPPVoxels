@@ -1,0 +1,304 @@
+#ifndef MODEL_RAYTRACE_SLANGH
+#define MODEL_RAYTRACE_SLANGH
+#include "voxelmodel.slangh"
+
+struct ModelRayHit {
+    bool hit;
+    float depth;
+    int3 cell;
+    float3 normal;
+    uint voxel;
+    uint instance;
+    int priority;
+    uint creationOrder;
+};
+
+// Keep equal-depth candidates in the search despite floating-point differences
+// between BVH/DDA and world tracing. Cell identity, rather than this tolerance,
+// decides whether two hits overlap.
+float ModelTieLimit(float depth) {
+    return depth + max(0.0001, abs(depth) * 0.000001);
+}
+
+float ModelWorldLimit(float depth, bool worldHit) {
+    return worldHit ? ModelTieLimit(depth) : depth;
+}
+
+bool ModelWinsWorld(ModelRayHit model, float worldDepth, bool worldHit, int3 worldCell, bool modelAligned) {
+    bool tied = modelAligned ? model.depth < ModelTieLimit(worldDepth) : all(model.cell == worldCell);
+    return model.hit && (model.depth < worldDepth || (worldHit && tied));
+}
+
+GPUVoxelModel ReadModel(ByteAddressBuffer scene, uint offset, uint slot) {
+    uint4 data = scene.Load4(offset + slot * 16u);
+
+    GPUVoxelModel result;
+    result.dimensions = data.xyz;
+    result.voxelOffset = data.w;
+
+    return result;
+}
+
+GPUModelInstance ReadModelInstance(ByteAddressBuffer scene, uint offset, uint slot, bool modelAligned) {
+    uint first = offset + slot * 112u;
+
+    GPUModelInstance result;
+    result.inverseRows[0] = asfloat(scene.Load4(first));
+    result.inverseRows[1] = asfloat(scene.Load4(first + 16u));
+    result.inverseRows[2] = asfloat(scene.Load4(first + 32u));
+    result.info = scene.Load4(first + 48u);
+    result.worldRows[0] = float4(0);
+    result.worldRows[1] = float4(0);
+    result.worldRows[2] = float4(0);
+
+    if (modelAligned) {
+        result.worldRows[0] = asfloat(scene.Load4(first + 64u));
+        result.worldRows[1] = asfloat(scene.Load4(first + 80u));
+        result.worldRows[2] = asfloat(scene.Load4(first + 96u));
+    }
+
+    return result;
+}
+
+GPUModelBVHNode ReadModelNode(ByteAddressBuffer scene, uint offset, uint slot) {
+    uint4 minimum = scene.Load4(offset + slot * 32u);
+    uint4 maximum = scene.Load4(offset + slot * 32u + 16u);
+
+    GPUModelBVHNode result;
+    result.minimum = asfloat(minimum.xyz);
+    result.childOrInstance = minimum.w;
+    result.maximum = asfloat(maximum.xyz);
+    result.escape = maximum.w;
+
+    return result;
+}
+
+struct ModelPreparedRay {
+    float3 origin;
+    float3 invDirection;
+    int3 step;
+};
+
+ModelPreparedRay PrepareModelRay(float3 origin, float3 direction, bool localGrid = false) {
+    ModelPreparedRay ray;
+    ray.origin = origin;
+    bool3 parallel = abs(direction) < float3(localGrid ? 1e-30 : 1e-8);
+    ray.step = select(parallel, int3(0), int3(sign(direction)));
+    ray.invDirection = select(parallel, float3(1e30), 1.0 / select(parallel, float3(1), direction));
+
+    return ray;
+}
+
+bool ModelRayBox(ModelPreparedRay ray, float3 minimum, float3 maximum, float limit, out float entry, out float exit) {
+    bool3 parallel = ray.step == int3(0);
+    float3 a = (minimum - ray.origin) * ray.invDirection;
+    float3 b = (maximum - ray.origin) * ray.invDirection;
+    float3 near = select(parallel, float3(-1e30), min(a, b));
+    float3 far = select(parallel, float3(1e30), max(a, b));
+
+    entry = max(0.0, max(near.x, max(near.y, near.z)));
+    exit = min(limit, min(far.x, min(far.y, far.z)));
+
+    return !any(parallel && (ray.origin < minimum || ray.origin >= maximum)) && entry < limit && exit >= entry;
+}
+
+ModelRayHit TraceModelGrid(ModelPreparedRay ray, float3 direction, float limit, float entry, float exit, GPUModelBVHNode bounds, GPUVoxelModel model, GPUModelInstance instance, uint instanceSlot, StructuredBuffer<uint> voxels, bool modelAligned) {
+    ModelRayHit result;
+    result.hit = false;
+    result.depth = limit;
+    result.cell = int3(0);
+    result.normal = int3(0);
+    result.voxel = 0;
+    result.instance = instanceSlot;
+    result.priority = asint(instance.info.z);
+    result.creationOrder = instance.info.w;
+
+    int3 first = int3(bounds.minimum), last = int3(bounds.maximum);
+    if (modelAligned) {
+        // Do not normalize the transformed direction: t must remain distance
+        // along the original world ray, including nonuniform scale/shear.
+        float4 worldOrigin = float4(ray.origin, 1);
+        float3 localOrigin = float3(
+            dot(instance.inverseRows[0], worldOrigin),
+            dot(instance.inverseRows[1], worldOrigin),
+            dot(instance.inverseRows[2], worldOrigin)
+        );
+        direction = float3(
+            dot(instance.inverseRows[0].xyz, direction),
+            dot(instance.inverseRows[1].xyz, direction),
+            dot(instance.inverseRows[2].xyz, direction)
+        );
+        ray = PrepareModelRay(localOrigin, direction, true);
+        float localEntry, localExit;
+        if (!ModelRayBox(ray, float3(0), float3(model.dimensions), limit, localEntry, localExit))
+            return result;
+        entry = max(entry, localEntry);
+        exit = min(exit, localExit);
+        if (exit < entry)
+            return result;
+        first = int3(0);
+        last = int3(model.dimensions);
+    }
+
+    float3 origin = ray.origin;
+    int3 step = ray.step;
+    float3 invDirection = ray.invDirection;
+    int3 cell = clamp(int3(floor(origin + direction * entry + float3(step) * 0.0001)), first, last - 1);
+
+    float3 delta = abs(invDirection);
+    float3 boundary = float3(cell) + select(step > int3(0), float3(1), float3(0));
+    float3 next = select(step != int3(0), (boundary - origin) * invDirection, float3(1e30));
+    float depth = entry;
+    uint3 size = uint3(last - first);
+    uint maxSteps = size.x + size.y + size.z + 3u;
+
+    for (uint iteration = 0; iteration < maxSteps; ++iteration) {
+        if (any(cell < first) || any(cell >= last) || depth >= limit || depth > exit)
+            break;
+
+        float3 local = float3(cell);
+        if (!modelAligned) {
+            // World-grid mode transforms each cell's center during DDA.
+            float4 center = float4(float3(cell) + 0.5, 1);
+            local = float3(
+                dot(instance.inverseRows[0], center),
+                dot(instance.inverseRows[1], center),
+                dot(instance.inverseRows[2], center)
+            );
+            float3 boundaryLocal = round(local);
+            local = select(abs(local - boundaryLocal) < 0.00001, boundaryLocal, local);
+        }
+
+        if (all(local >= float3(0)) && all(local < float3(model.dimensions))) {
+            uint3 coordinate = uint3(floor(local));
+            uint address = model.voxelOffset + (coordinate.z * model.dimensions.y + coordinate.y) * model.dimensions.x +
+                           coordinate.x;
+            uint voxel = voxels[address];
+
+            if ((voxel & 0x8000u) != 0u) {
+                // Refine against the unit cell to avoid accumulated DDA error.
+                float3 front = float3(cell) + select(step > int3(0), float3(0), float3(1));
+                float3 near = select(step == int3(0), float3(-1e30), (front - origin) * invDirection);
+                result.hit = true;
+                result.depth = max(0.0, max(near.x, max(near.y, near.z)));
+                float3 axisWeight = result.depth > 0 ? near : abs(direction);
+                uint axis = axisWeight.x >= axisWeight.y && axisWeight.x >= axisWeight.z
+                                ? 0u
+                                : (axisWeight.y >= axisWeight.z ? 1u : 2u);
+                result.normal = int3(0);
+                result.normal[axis] = -step[axis];
+                result.cell = cell;
+                result.voxel = voxel;
+                if (modelAligned) {
+                    // One lighting anchor for the entire transformed source
+                    // voxel, independent of the face/pixel that the ray hit.
+                    float4 center = float4(float3(cell) + 0.5, 1);
+                    result.cell = int3(floor(float3(
+                        dot(instance.worldRows[0], center),
+                        dot(instance.worldRows[1], center),
+                        dot(instance.worldRows[2], center)
+                    )));
+                    result.normal = normalize(
+                        instance.inverseRows[0].xyz * result.normal.x + instance.inverseRows[1].xyz * result.normal.y +
+                        instance.inverseRows[2].xyz * result.normal.z
+                    );
+                }
+                return result;
+            }
+        }
+
+        depth = min(next.x, min(next.y, next.z));
+        float crossingTolerance = modelAligned ? min(delta.x, min(delta.y, delta.z)) * 0.000001 : 0.000001;
+        bool3 crossed = next <= depth + crossingTolerance;
+        cell += select(crossed, step, int3(0));
+        next += select(crossed, delta, float3(0));
+    }
+
+    return result;
+}
+
+ModelRayHit TraceModels(float3 origin, float3 direction, float limit, uint nodeCount, uint modelCount, uint instanceCount, uint priorityWinner, StructuredBuffer<uint> voxels, ByteAddressBuffer scene, uint4 offsets) {
+    ModelRayHit closest;
+    closest.hit = false;
+    closest.depth = limit;
+    closest.cell = int3(0);
+    closest.normal = int3(0);
+    closest.voxel = 0;
+    closest.instance = 0xffffffffu;
+    closest.priority = 0;
+    closest.creationOrder = 0;
+    if (nodeCount == 0u)
+        return closest;
+
+    ModelPreparedRay ray = PrepareModelRay(origin, direction);
+    bool modelAligned = offsets.w != 0u;
+
+    // Median-split trees fit in 32 levels under the scene buffer size limit.
+    // Visit the nearer child first so its hit can prune farther subtrees.
+    uint deferred[32];
+    uint pending = 0u;
+    uint cursor = 0;
+    while (true) {
+        GPUModelBVHNode node = ReadModelNode(scene, offsets.z, cursor);
+        // Once the globally highest-priority instance owns the hit, no other
+        // instance can win a tie. This also ends camera-inside searches at t=0.
+        bool needsTies = closest.instance != priorityWinner;
+        float searchLimit = closest.hit ? min(limit, needsTies ? ModelTieLimit(closest.depth) : closest.depth) : limit;
+        if (searchLimit <= 0)
+            break;
+
+        float entry, exit;
+        if (ModelRayBox(ray, node.minimum, node.maximum, searchLimit, entry, exit)) {
+            if ((node.childOrInstance & 0x80000000u) == 0u) {
+                uint leftIndex = node.childOrInstance;
+                GPUModelBVHNode left = ReadModelNode(scene, offsets.z, leftIndex);
+                uint rightIndex = left.escape;
+                GPUModelBVHNode right = ReadModelNode(scene, offsets.z, rightIndex);
+                float leftEntry, leftExit, rightEntry, rightExit;
+                bool hitLeft = ModelRayBox(ray, left.minimum, left.maximum, searchLimit, leftEntry, leftExit);
+                bool hitRight = ModelRayBox(ray, right.minimum, right.maximum, searchLimit, rightEntry, rightExit);
+
+                if (hitLeft && hitRight) {
+                    bool leftFirst = leftEntry <= rightEntry;
+                    deferred[pending++] = leftFirst ? rightIndex : leftIndex;
+                    cursor = leftFirst ? leftIndex : rightIndex;
+                    continue;
+                }
+                if (hitLeft || hitRight) {
+                    cursor = hitLeft ? leftIndex : rightIndex;
+                    continue;
+                }
+            } else {
+                uint slot = node.childOrInstance & 0x7fffffffu;
+                if (slot < instanceCount) {
+                    GPUModelInstance instance = ReadModelInstance(scene, offsets.y, slot, modelAligned);
+                    bool winsPriority =
+                        asint(instance.info.z) > closest.priority ||
+                        (asint(instance.info.z) == closest.priority && instance.info.w < closest.creationOrder);
+                    // A lower-priority instance only needs to search in front
+                    // of the current hit; it cannot replace its shared cell.
+                    float instanceLimit = closest.hit && !winsPriority ? min(searchLimit, closest.depth) : searchLimit;
+                    if (entry < instanceLimit && instance.info.y != 0u && instance.info.x < modelCount) {
+                        GPUVoxelModel model = ReadModel(scene, offsets.x, instance.info.x);
+                        ModelRayHit hit = TraceModelGrid(ray, direction, instanceLimit, entry, exit, node, model, instance, slot, voxels, modelAligned);
+                        if (hit.hit) {
+                            bool sharedCell =
+                                closest.hit && (modelAligned ? abs(hit.depth - closest.depth) <
+                                                                   max(0.0001, abs(closest.depth) * 0.000001)
+                                                             : all(hit.cell == closest.cell));
+                            if (!closest.hit || (sharedCell ? winsPriority : hit.depth < closest.depth))
+                                closest = hit;
+                        }
+                    }
+                }
+            }
+        }
+        if (pending == 0u)
+            break;
+
+        cursor = deferred[--pending];
+    }
+
+    return closest;
+}
+#endif

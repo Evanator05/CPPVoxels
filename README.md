@@ -17,7 +17,7 @@
 
 ### Voxel Assets
 - [x] Voxel model support (e.g. `.vox`)
-- [ ] Instanced voxel models
+- [x] Instanced voxel models
 - [ ] Import/export tooling
  
 ### Gameplay Features

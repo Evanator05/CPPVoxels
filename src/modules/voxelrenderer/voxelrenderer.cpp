@@ -17,6 +17,7 @@
 #include "shaders/setindirecttraceprobelighting.h"
 #include "shaders/traceprobelighting.h"
 #include "shaders/combinelighting.h"
+#include "shaders/raytracemodels.h"
 #include "testgeneration.h"
 
 #include <bit>
@@ -101,7 +102,7 @@ void VoxelRenderer::Init() {
 
     Texture *positions = renderer.CreateResource<Texture>();
     positions->size = window.GetSize();
-    positions->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    positions->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     positions->format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_INT;
     positions->Create();
 
@@ -113,7 +114,7 @@ void VoxelRenderer::Init() {
 
     Texture *fullDepth = renderer.CreateResource<Texture>();
     fullDepth->size = window.GetSize();
-    fullDepth->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    fullDepth->usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE;
     fullDepth->format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
     fullDepth->Create();
 
@@ -150,13 +151,19 @@ void VoxelRenderer::Init() {
 
     TypedBuffer<uint32_t> *activeProbesBuffer = renderer.CreateResource<TypedBuffer<uint32_t>>();
     activeProbesBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
-    activeProbesBuffer->SetSize(window.GetSize().x * window.GetSize().y);
+    // Primary rays and model pixels can each activate two distinct probes.
+    activeProbesBuffer->SetSize(size_t(window.GetSize().x) * window.GetSize().y * 4 + 1);
     activeProbesBuffer->Create();
 
     TypedBuffer<uint32_t> *indirectArgsBuffer = renderer.CreateResource<TypedBuffer<uint32_t>>();
     indirectArgsBuffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_BUFFERUSAGE_INDIRECT;
     indirectArgsBuffer->SetSize(3);
     indirectArgsBuffer->Create();
+
+    modelVoxels = renderer.CreateResource<TypedBuffer<Voxel>>();
+    modelScene = renderer.CreateResource<Buffer>();
+    for (Buffer* buffer : {static_cast<Buffer*>(modelVoxels), modelScene})
+        buffer->usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
 
     window.ResizedScreen.Bind(
         [this, albedo, display, halfDepth, fullDepth, positions, activeProbesBuffer](glm::ivec2 size) {
@@ -175,7 +182,7 @@ void VoxelRenderer::Init() {
             fullDepth->size = size;
             fullDepth->Create();
 
-            activeProbesBuffer->SetSize(size.x * size.y);
+            activeProbesBuffer->SetSize(size_t(size.x) * size.y * 4 + 1);
             activeProbesBuffer->Create();
         }
     );
@@ -253,6 +260,22 @@ void VoxelRenderer::Init() {
     primaryPass->readwrite_storage_buffers.push_back(activeProbesBuffer);
     primaryPass->Create();
 
+    modelRayPass = renderer.CreateShaderPass<ComputePass>();
+    modelRayPass->spirv = raytracemodels_spirv;
+    modelRayPass->spirv_size = raytracemodels_spirv_sizeInBytes / 4;
+    modelRayPass->threadcount = {8, 8, 1};
+    modelRayPass->readonly_storage_buffers =
+        {cameraTransformBuffer, modelVoxels, modelScene, chunkPositionsHeader, chunkPositions};
+    modelRayPass->readwrite_storage_textures = {fullDepth, albedo, positions};
+    modelRayPass->readwrite_storage_buffers = {lightChunksBuffer, activeProbesBuffer};
+    modelRayPass->SetUniformData(0, GPUModelSceneParameters{});
+    modelRayPass->dispatchFunc = [this](const ComputePass &) {
+        if (GetModule<VoxelModelManager>().GetBVHNodes().empty())
+            return glm::uvec3(0);
+        const auto size = GetModule<Window>().GetSize();
+        return glm::uvec3((size.x + 7) / 8, (size.y + 7) / 8, 1);
+    };
+    modelRayPass->Create();
     ComputePass *setIndirectTraceProbeLighting = renderer.CreateShaderPass<ComputePass>();
     setIndirectTraceProbeLighting->spirv = setindirecttraceprobelighting_spirv;
     setIndirectTraceProbeLighting->spirv_size = setindirecttraceprobelighting_spirv_sizeInBytes/4;
@@ -263,6 +286,7 @@ void VoxelRenderer::Init() {
     setIndirectTraceProbeLighting->Create();
 
     ComputePass *traceProbeLightingPass = renderer.CreateShaderPass<ComputePass>();
+    modelProbePass = traceProbeLightingPass;
     traceProbeLightingPass->spirv = traceprobelighting_spirv;
     traceProbeLightingPass->spirv_size = traceprobelighting_spirv_sizeInBytes/4;
     traceProbeLightingPass->threadcount = {64, 1, 1};
@@ -273,6 +297,9 @@ void VoxelRenderer::Init() {
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunks);
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunkPositionsHeader);
     traceProbeLightingPass->readonly_storage_buffers.push_back(chunkPositions);
+    traceProbeLightingPass->readonly_storage_buffers.push_back(modelVoxels);
+    traceProbeLightingPass->readonly_storage_buffers.push_back(modelScene);
+    traceProbeLightingPass->SetUniformData(0, GPUModelSceneParameters{});
     traceProbeLightingPass->readwrite_storage_buffers.push_back(lightChunksBuffer);
     traceProbeLightingPass->readwrite_storage_buffers.push_back(activeProbesBuffer);
     traceProbeLightingPass->Create();
@@ -327,11 +354,131 @@ void VoxelRenderer::SynchronizeVoxelData() {
     UploadDirtyChunks();
     UploadDirtyOccupancyMap();
     UploadDirtyLightChunks();
+    UploadModelData();
     QueueUpload(cameraTransformBuffer, &cameraTransform, 0, sizeof(cameraTransform));
 
     FlushUploads();
     fullContreeUpload = false;
     fullChunkUpload = false;
+    GetModule<VoxelModelManager>().ClearDirtyUploads();
+}
+
+void VoxelRenderer::UploadModelData() {
+    auto &manager = GetModule<VoxelModelManager>();
+    manager.SynchronizeInstances();
+
+    auto upload = [this]<typename T>(
+                      TypedBuffer<T> *buffer,
+                      const std::vector<T> &values,
+                      const std::vector<uint32_t> &changed
+                  ) {
+        bool full = !buffer->GetGPU() || buffer->GetSize() < std::max<size_t>(values.size(), 1);
+        if (full) {
+            const size_t limit = UINT32_MAX / sizeof(T);
+            const size_t capacity = std::max(
+                std::max<size_t>(values.size(), 1),
+                std::min(limit, buffer->GetSize() * 2)
+            );
+            if (capacity > limit)
+                throw std::length_error("Model buffer exceeds SDL limits");
+
+            buffer->SetSize(capacity);
+            RequireGPUOperation(buffer->GetGPU() != nullptr, "Create raytraced model buffer");
+            QueueUpload(buffer, values.data(), 0, values.size() * sizeof(T));
+        } else {
+            auto indices = changed;
+            // A topology rebuild may shrink a stable-slot array before upload.
+            std::erase_if(indices, [&](uint32_t index) {
+                return index >= values.size();
+            });
+            VisitRanges(indices, [&](size_t first, size_t count) {
+                QueueUpload(buffer, values.data() + first, first * sizeof(T), count * sizeof(T));
+            });
+        }
+    };
+
+    std::vector<uint32_t> unused;
+    const bool fullVoxels =
+        !modelVoxels->GetGPU() ||
+        modelVoxels->GetSize() < std::max<size_t>(manager.GetVoxels().size(), 1);
+    upload(modelVoxels, manager.GetVoxels(), unused);
+
+    if (!fullVoxels) {
+        for (const auto range : manager.GetDirtyVoxelRanges()) {
+            if (range.first >= manager.GetVoxels().size())
+                continue;
+
+            const size_t count =
+                std::min<size_t>(range.count, manager.GetVoxels().size() - range.first);
+            QueueUpload(
+                modelVoxels,
+                manager.GetVoxels().data() + range.first,
+                size_t(range.first) * sizeof(Voxel),
+                count * sizeof(Voxel)
+            );
+        }
+    }
+
+    bool fullScene = !modelScene->GetGPU();
+    auto grow = [&](size_t &capacity, size_t required) {
+        if (capacity < std::max<size_t>(required, 1)) {
+            capacity = std::max(std::max<size_t>(required, 1), capacity * 2);
+            fullScene = true;
+        }
+    };
+    grow(modelSlotCapacity, manager.GetModels().size());
+    grow(modelInstanceCapacity, manager.GetGPUInstances().size());
+    grow(modelNodeCapacity, manager.GetBVHNodes().size());
+
+    const uint64_t instanceOffset = uint64_t(modelSlotCapacity) * sizeof(GPUVoxelModel);
+    const uint64_t nodeOffset =
+        instanceOffset + uint64_t(modelInstanceCapacity) * sizeof(GPUModelInstance);
+    const uint64_t sceneSize = nodeOffset + uint64_t(modelNodeCapacity) * sizeof(GPUModelBVHNode);
+    if (sceneSize > UINT32_MAX)
+        throw std::length_error("Model scene metadata exceeds SDL limits");
+
+    if (fullScene) {
+        modelScene->SetSize(size_t(sceneSize));
+        RequireGPUOperation(modelScene->GetGPU() != nullptr, "Create model scene metadata buffer");
+    }
+
+    auto sceneUpload = [this, fullScene]<typename T>(
+                           const std::vector<T> &data,
+                           const std::vector<uint32_t> &dirty,
+                           size_t offset
+                       ) {
+        if (fullScene)
+            QueueUpload(modelScene, data.data(), offset, data.size() * sizeof(T));
+        else {
+            auto indices = dirty;
+            std::erase_if(indices, [&](uint32_t index) {
+                return index >= data.size();
+            });
+            VisitRanges(indices, [&](size_t first, size_t count) {
+                QueueUpload(
+                    modelScene,
+                    data.data() + first,
+                    offset + first * sizeof(T),
+                    count * sizeof(T)
+                );
+            });
+        }
+    };
+
+    sceneUpload(manager.GetModels(), manager.GetDirtyModels(), 0);
+    sceneUpload(manager.GetGPUInstances(), manager.GetDirtyInstances(), size_t(instanceOffset));
+    sceneUpload(manager.GetBVHNodes(), manager.GetDirtyBVHNodes(), size_t(nodeOffset));
+
+    GPUModelSceneParameters parameters{
+        {uint32_t(manager.GetBVHNodes().size()),
+         uint32_t(manager.GetModels().size()),
+         uint32_t(manager.GetGPUInstances().size()),
+         manager.GetPriorityWinner()},
+        {0, uint32_t(instanceOffset), uint32_t(nodeOffset), uint32_t(manager.GetGridAlignment())}
+    };
+    modelRayPass->SetUniformData(0, parameters);
+    if (modelProbePass)
+        modelProbePass->SetUniformData(0, parameters);
 }
 
 void VoxelRenderer::Shutdown() {

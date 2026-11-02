@@ -10,6 +10,7 @@
 #include "input.h"
 #include "audio.h"
 #include "modules/voxel/voxelmanager.h"
+#include "modules/voxelmodel/voxelmodelmanager.h"
 #include "modules/renderer/renderer.h"
 #include "modules/voxelrenderer/voxelrenderer.h"
 #include "gui.h"
@@ -26,6 +27,7 @@ Engine::Engine() {
 
     AddModule<Console>();
     AddModule<VoxelManager>();
+    AddModule<VoxelModelManager>();
 
     //AddModule<Audio>();
     AddModule<Test>(); // test features in here

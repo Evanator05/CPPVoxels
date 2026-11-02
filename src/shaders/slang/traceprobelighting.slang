@@ -1,6 +1,7 @@
 #include "raytrace.slangh"
 #include "sky.slangh"
 #include "lightprobe.slangh"
+#include "modelraytrace.slangh"
 
 #define PROBE_LIGHTING_THREADS 64
 
@@ -40,6 +41,10 @@ StructuredBuffer<ChunkPositionsHeader> chunkPositionsHeader;
 [[vk::binding(5, 0)]]
 StructuredBuffer<uint32_t> chunkPositions;
 
+[[vk::binding(6, 0)]] StructuredBuffer<uint> modelVoxels;
+[[vk::binding(7, 0)]] ByteAddressBuffer modelScene;
+[[vk::binding(0, 2)]] cbuffer ModelScene { uint4 sceneCounts; uint4 sceneOffsets; };
+
 [[vk::binding(0, 1)]]
 RWStructuredBuffer<LightChunk> lightChunks;
 
@@ -51,14 +56,31 @@ TraceResult PL_Trace(float3 origin, float3 direction) {
     ray.origin = origin;
     ray.direction = direction;
 
-    return TraceWorld(
-        ray,
-        contreeHeaders,
-        contreeData,
-        chunks,
-        chunkPositionsHeader,
-        chunkPositions, 200
+    TraceResult result =
+        TraceWorld(ray, contreeHeaders, contreeData, chunks, chunkPositionsHeader, chunkPositions, 200);
+
+    ModelRayHit modelHit = TraceModels(
+        origin,
+        direction,
+        ModelWorldLimit(min(result.depth, 200.0), result.hit),
+        sceneCounts.x,
+        sceneCounts.y,
+        sceneCounts.z,
+        sceneCounts.w,
+        modelVoxels,
+        modelScene,
+        sceneOffsets
     );
+
+    if (ModelWinsWorld(modelHit, min(result.depth, 200.0), result.hit, result.position, sceneOffsets.w != 0u)) {
+        result.hit = true;
+        result.depth = modelHit.depth;
+        result.position = modelHit.cell;
+        result.normal = float3(modelHit.normal);
+        result.voxel = (Voxel)modelHit.voxel;
+    }
+
+    return result;
 }
 
 uint PL_Hash(uint value) {

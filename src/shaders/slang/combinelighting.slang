@@ -1,4 +1,5 @@
 #include "lightprobe.slangh"
+#include "voxelmodel.slangh"
 
 [[vk::binding(0, 0)]]
 Texture2D<float4> albedoImage;
@@ -120,28 +121,31 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
 
     float3 outward = float3(0);
 
-    [unroll]
-    for (uint i = 0u; i < 6u; ++i) {
-        int3 adjacentLocal = localVoxel + directions[i];
-        uint64_t solid = currentSolid;
-        LightProbeAddress adjacentAddress = currentAddress;
+    // A model voxel has one lit color at its cell center. The camera-visible
+    // face normal must not select different probes for different faces.
+    // World voxels retain their view-independent occupancy-neighborhood filter.
+    if ((uint(hitPosition.w) & MODEL_HIT_FLAG) == 0u) {
+        [unroll]
+        for (uint i = 0u; i < 6u; ++i) {
+            int3 adjacentLocal = localVoxel + directions[i];
+            uint64_t solid = currentSolid;
+            LightProbeAddress adjacentAddress = currentAddress;
 
-        if (any(adjacentLocal < int3(0)) || any(adjacentLocal >= int3(4))) {
-            adjacentAddress = manager.GetProbeAddress(
-                voxelPosition + directions[i]
-            );
+            if (any(adjacentLocal < int3(0)) || any(adjacentLocal >= int3(4))) {
+                adjacentAddress = manager.GetProbeAddress(voxelPosition + directions[i]);
 
-            solid = 0ull;
-            if (adjacentAddress.valid && adjacentAddress.chunkIndex < chunkCount) {
-                solid = manager.lightChunks[adjacentAddress.chunkIndex].probes[adjacentAddress.probeIndex].solid;
+                solid = 0ull;
+                if (adjacentAddress.valid && adjacentAddress.chunkIndex < chunkCount) {
+                    solid = manager.lightChunks[adjacentAddress.chunkIndex].probes[adjacentAddress.probeIndex].solid;
+                }
+
+                adjacentLocal &= int3(3);
             }
 
-            adjacentLocal &= int3(3);
+            uint bitIndex = uint(adjacentLocal.x + adjacentLocal.y * 4 + adjacentLocal.z * 16);
+            if (((solid >> bitIndex) & 1ull) == 0ull)
+                outward += float3(directions[i]);
         }
-
-        uint bitIndex = uint(adjacentLocal.x + adjacentLocal.y * 4 + adjacentLocal.z * 16);
-        if (((solid >> bitIndex) & 1ull) == 0ull)
-            outward += float3(directions[i]);
     }
 
     bool hasOutward = dot(outward, outward) > 0.0;

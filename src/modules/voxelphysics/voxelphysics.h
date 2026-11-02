@@ -21,6 +21,6 @@ struct RayQuery {
 
 class VoxelPhysics : public EngineModule {
 public:
-    explicit VoxelPhysics(Engine* engine) : EngineModule(engine) {}
+    using EngineModule::EngineModule;
     RayQuery TraceWorld(Ray ray, float maxDepth = (std::numeric_limits<float>::max)());
 };

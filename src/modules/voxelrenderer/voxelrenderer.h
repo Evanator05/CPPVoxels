@@ -5,10 +5,12 @@
 #include "modules/renderer/resources/buffer.h"
 #include "glm/vec3.hpp"
 #include "glm/mat3x3.hpp"
+#include "glm/vec4.hpp"
 #include <glm/ext/matrix_relational.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "modules/voxel/voxel.h"
+#include "modules/voxelmodel/voxelmodelmanager.h"
 
 class VoxelRenderer : public EngineModule {
     public:
@@ -82,6 +84,7 @@ class VoxelRenderer : public EngineModule {
         void UploadDirtyChunks();
         void UploadDirtyOccupancyMap();
         void UploadDirtyLightChunks();
+        void UploadModelData();
         void DownloadLightChunks(const std::vector<uint32_t>& indices);
 
         SDL_GPUDevice *device = nullptr;
@@ -106,4 +109,12 @@ class VoxelRenderer : public EngineModule {
         ChunkPositionsHeader occupancyUploadHeader{};
         bool fullContreeUpload = true;
         bool fullChunkUpload = true;
+
+        TypedBuffer<Voxel> *modelVoxels = nullptr;
+        Buffer *modelScene = nullptr;
+        size_t modelSlotCapacity = 0;
+        size_t modelInstanceCapacity = 0;
+        size_t modelNodeCapacity = 0;
+        ComputePass *modelRayPass = nullptr;
+        ComputePass *modelProbePass = nullptr;
 };

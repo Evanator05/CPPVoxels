@@ -1,0 +1,33 @@
+#ifndef VOXEL_MODEL_SLANGH
+#define VOXEL_MODEL_SLANGH
+
+struct GPUVoxelModel {
+    uint3 dimensions;
+    uint voxelOffset;
+};
+
+struct GPUModelInstance {
+    float4 inverseRows[3];
+    uint4 info;
+    float4 worldRows[3];
+};
+
+struct GPUModelBVHNode {
+    float3 minimum;
+    uint childOrInstance;
+    float3 maximum;
+    uint escape;
+};
+
+struct ModelCameraTransform {
+    int4 chunkPos;
+    float4 localPos;
+    float4 right;
+    float4 up;
+    float4 forward;
+    float time;
+    int frame;
+};
+
+static const uint MODEL_HIT_FLAG = 0x100u;
+#endif
